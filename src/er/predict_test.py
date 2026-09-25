@@ -18,7 +18,9 @@ import pandas as pd
 
 from er.transliterate import AnyAsciiTransliterator
 from er.normalize import RuleNormalizer
+from er.blockers.embedding import EmbeddingBlocker
 from er.blockers.tfidf import TfidfNgramBlocker
+from er.blockers.union import UnionBlocker
 from er.features import PairFeaturizer
 from er.matcher import XgbMatcher
 from er.decision import decide
@@ -46,7 +48,10 @@ def load_test(test_dir: Path) -> dict[str, pd.DataFrame]:
 
 
 def prepare(raw: dict[str, pd.DataFrame], translit, norm) -> dict[str, pd.DataFrame]:
-    frames = {k: norm.transform(translit.transform(df)) for k, df in raw.items()}
+    # raw_name/raw_address: the untransliterated text the embedding blocker reads (docs/blocking.md).
+    frames = {k: norm.transform(translit.transform(df)).assign(raw_name=df["business_name"],
+                                                               raw_address=df["business_address"])
+              for k, df in raw.items()}
     target = pd.concat([frames["s2"], frames["s3"]], ignore_index=True)
     return {"s1": frames["s1"], "target": target}
 
@@ -63,7 +68,9 @@ def run(model_path: str, test_dir: str, threshold: float, device: str):
         prep = prepare(raw, translit, norm)
 
     with Timer(f"block+featurize test (k={BLOCK_K}, device={device})"):
-        blocker = TfidfNgramBlocker(device=device)
+        # Must match the blocker the model was trained with (train_matcher.py): TF-IDF + embedder in parallel.
+        blocker = UnionBlocker({"tfidf": TfidfNgramBlocker(device=device),
+                                "embedding": EmbeddingBlocker(device=device)})
         blocker.fit(prep["target"])
         candidates = blocker.query(prep["s1"], k=BLOCK_K)
         feats = PairFeaturizer().transform(candidates, prep["s1"], prep["target"])

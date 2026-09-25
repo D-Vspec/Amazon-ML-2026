@@ -27,7 +27,9 @@ import pandas as pd
 
 from er.transliterate import AnyAsciiTransliterator
 from er.normalize import RuleNormalizer
+from er.blockers.embedding import EmbeddingBlocker
 from er.blockers.tfidf import TfidfNgramBlocker
+from er.blockers.union import UnionBlocker
 from er.evaluate import F05Evaluator
 from er.features import PairFeaturizer, FEATURE_COLUMNS
 from er.training_pairs import build_training_pairs, summarize
@@ -74,13 +76,17 @@ def load_sets(set_nums: list[int], evaluator: F05Evaluator) -> tuple[dict[str, p
 
 def prepare(raw: dict[str, pd.DataFrame], translit, norm) -> dict[str, pd.DataFrame]:
     """Transliterate + normalize S1/S2/S3; return s1 and the concatenated s2+s3 target frame."""
-    frames = {k: norm.transform(translit.transform(df)) for k, df in raw.items()}
+    # raw_name/raw_address: the untransliterated text the embedding blocker reads (docs/blocking.md).
+    frames = {k: norm.transform(translit.transform(df)).assign(raw_name=df["business_name"],
+                                                               raw_address=df["business_address"])
+              for k, df in raw.items()}
     target = pd.concat([frames["s2"], frames["s3"]], ignore_index=True)
     return {"s1": frames["s1"], "target": target}
 
 
 def block_and_featurize(prepared: dict[str, pd.DataFrame], device: str) -> pd.DataFrame:
-    blocker = TfidfNgramBlocker(device=device)
+    # TF-IDF and the multilingual embedder in parallel; recall 0.990 vs 0.977 for TF-IDF alone (docs/blocking.md).
+    blocker = UnionBlocker({"tfidf": TfidfNgramBlocker(device=device), "embedding": EmbeddingBlocker(device=device)})
     blocker.fit(prepared["target"])
     candidates = blocker.query(prepared["s1"], k=BLOCK_K)
     feats = PairFeaturizer().transform(candidates, prepared["s1"], prepared["target"])
