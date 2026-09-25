@@ -290,9 +290,13 @@ def test_after_transliteration(native, core, form):
 
 # ---------------------------------------------------------------- names: edge cases
 
-@pytest.mark.parametrize("raw", ["", " ", "***", "&", "( )", "--"])
+@pytest.mark.parametrize("raw", ["", " ", "***", "&", "( )", "--", "DBA", "d/b/a", "trading as"])
 def test_empty_or_junk_name(raw):
     assert n.normalize_name(raw) == ("", "")
+
+
+def test_french_et_alone_is_empty():  # real test-split row
+    assert n.normalize_name("ET", "France") == ("", "")
 
 
 @pytest.mark.parametrize("raw", [
