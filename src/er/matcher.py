@@ -1,7 +1,7 @@
 """Gradient-boosted classifier that scores each candidate pair's probability of being a true match.
 
-Code: src/er/matcher.py. See docs/matching.md. Trains on labeled pairs from training_pairs.py, using
-the FEATURE_COLUMNS from features.py.
+Code: src/er/matcher.py. See docs/matching.md. Trains on labeled pairs from training_pairs.py, using every
+feature column features.py produced (FEATURE_COLUMNS plus any per-blocker score columns).
 
 Contract, matching the rest of the pipeline: fit(labeled_pairs) -> self, predict(pairs) -> pairs +
 `match_proba`. MIT-licensed (xgboost), well under the 8B-parameter limit.
@@ -9,8 +9,6 @@ Contract, matching the rest of the pipeline: fit(labeled_pairs) -> self, predict
 
 import pandas as pd
 import xgboost as xgb
-
-from .features import FEATURE_COLUMNS
 
 
 class XgbMatcher:
@@ -26,7 +24,9 @@ class XgbMatcher:
         self.model: xgb.XGBClassifier | None = None
 
     def fit(self, labeled_pairs: pd.DataFrame) -> "XgbMatcher":
-        X, y = labeled_pairs[FEATURE_COLUMNS], labeled_pairs["label"]
+        # Every column except the ids and label is a feature: FEATURE_COLUMNS plus any blocker score columns.
+        features = [c for c in labeled_pairs.columns if c not in ("s1_id", "cand_id", "label")]
+        X, y = labeled_pairs[features], labeled_pairs["label"]
         params = dict(self.params)
         if params["scale_pos_weight"] is None:
             neg, pos = int((y == 0).sum()), int((y == 1).sum())
@@ -38,11 +38,16 @@ class XgbMatcher:
     def predict(self, pairs: pd.DataFrame) -> pd.DataFrame:
         """Adds `match_proba` (probability the pair is a true match) to a copy of `pairs`."""
         out = pairs.copy()
-        out["match_proba"] = self.model.predict_proba(pairs[FEATURE_COLUMNS])[:, 1]
+        # Use the features the model was trained on (stored in the model), so older models keep working.
+        out["match_proba"] = self.model.predict_proba(pairs[self.feature_names])[:, 1]
         return out
 
+    @property
+    def feature_names(self) -> list[str]:
+        return list(self.model.get_booster().feature_names)
+
     def feature_importance(self) -> pd.Series:
-        return pd.Series(self.model.feature_importances_, index=FEATURE_COLUMNS).sort_values(ascending=False)
+        return pd.Series(self.model.feature_importances_, index=self.feature_names).sort_values(ascending=False)
 
     def save(self, path: str) -> None:
         """Save the fitted booster to `path` (XGBoost's native JSON format, e.g. 'model.json')."""
