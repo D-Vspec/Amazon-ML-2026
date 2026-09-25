@@ -54,7 +54,7 @@ e.mean_candidates(cands, truth)   # average candidate-list length, i.e. the matc
 
 Tested in `tests/test_evaluate.py`:
 - **Scored entities:** the average is over every S1 in the **truth**. An S1 missing from the prediction counts as an empty prediction. The real scorer rejects a submission that is missing S1 rows; the validator in `utils/validate_submission.py` catches that.
-- **Extra entities:** S1 ids in the prediction that aren't in the truth are ignored. This lets you score a full-test-format prediction against a validation tier.
+- **Extra entities:** S1 ids in the prediction that aren't in the truth are ignored. This lets you score a full-test-format prediction against one set.
 - **Blocking recall** is pooled over all true pairs, not averaged per entity. It's the ceiling on matcher recall: a true match missing from the candidates can never be predicted. Singletons have no true pairs, so they don't affect it.
 
 ## Workflow
