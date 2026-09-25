@@ -552,6 +552,42 @@ def test_address_variants_agree(variants):
     assert len({n.normalize_address(v) for v in variants}) == 1
 
 
+@pytest.mark.parametrize("raw, expected", [
+    ("Mumbai, Bombay, MH", "mumbai, mh"),
+    ("Office 1, Mumbai City, Bombay, Maharashtra", "office 1, mumbai, mh"),
+    ("Kolkata, Calcutta, WB", "kolkata, wb"),
+    ("Chennai, Madras, TN", "chennai, tn"),
+    ("Bangalore North, Karnataka", "bengaluru north, ka"),
+    ("Bengaluru North, Karnataka", "bengaluru north, ka"),
+    ("Gurgaon, Haryana", "gurugram, hr"),
+    ("Poona, MH", "pune, mh"),
+    ("Cochin, Kerala", "kochi, kl"),
+    ("Thrissur, Keralam", "thrissur, kl"),
+    ("Ahmednagar, Ahilyanagar, MH", "ahmednagar, mh"),
+    ("NEWDELHI, Delhi", "new delhi, dl"),
+    ("Flat 2D, Kolkata, Kolkata, Howrah, WB", "flat 2d, kolkata, howrah, wb"),
+])
+def test_india_city_aliases_and_duplicates(raw, expected):
+    assert n.normalize_address(raw, "India") == expected
+    assert n.normalize_address(expected, "India") == expected
+
+
+@pytest.mark.parametrize("country", ["US", "France", ""])
+def test_india_aliases_only_in_india(country):
+    assert n.normalize_address("Bombay Road, Madras Lane", country) == "bombay road, madras lane"
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("City of El Paso, TX", "el paso, tx"),
+    ("CITY OF GREEN BAY, WI", "green bay, wi"),
+    ("Town of Islip, NY", "islip, ny"),
+    ("Village of Oak Park, IL", "oak park, il"),
+    ("Salt Lake City, UT", "salt lake, ut"),
+])
+def test_city_of(raw, expected):
+    assert n.normalize_address(raw) == expected
+
+
 def test_component_order_preserved():
     assert n.normalize_address("TX, CLEVELAND, 1453 ROAD 5705") == "tx, cleveland, 1453 road 5705"
 

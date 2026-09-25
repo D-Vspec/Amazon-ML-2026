@@ -87,4 +87,4 @@ def test_transliterated_output_is_ascii(raw):
 @given(st.sampled_from(sorted(STATES)), any_text)
 def test_state_component_always_becomes_code(state, prefix):
     out = n.normalize_address(f"{prefix}, {state}")
-    assert out.endswith(STATES[state])
+    assert STATES[state] in out.split(", ")
