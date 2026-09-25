@@ -10,9 +10,14 @@ import pandas as pd
 from er.blockers.embedding import EmbeddingBlocker
 from er.blockers.tfidf import TfidfNgramBlocker
 from er.blockers.union import UnionBlocker
+from er.decision import decide, tune_threshold
 from er.evaluate import F05Evaluator
+from er.features import PairFeaturizer
+from er.matcher import XgbMatcher
 from er.normalize import RuleNormalizer
+from er.output import write_candidate_pairs, write_matching_results
 from er.split import HashSplitter
+from er.training_pairs import build_training_pairs
 from er.transliterate import AnyAsciiTransliterator
 
 SPLITS_DIR = Path("data/splits")
@@ -20,6 +25,7 @@ SPLITS_DIR = Path("data/splits")
 TRANSLITERATORS = {"anyascii": AnyAsciiTransliterator}
 NORMALIZERS = {"rules": RuleNormalizer}
 BLOCKERS = {"tfidf": TfidfNgramBlocker, "embedding": EmbeddingBlocker}
+MATCHERS = {"xgb": XgbMatcher}
 
 
 def load_config(path: Path = Path(".env")) -> dict[str, str]:
@@ -75,13 +81,21 @@ def main():
     blocker = make_blocker(config)
     block_k = int(config["BLOCK_K"])
 
-    if sets and not all((splits_dir / f"set_{k}").exists() for k in sets):
+    train_sets = [int(k) for k in config["TRAIN_SETS"].split(",") if k.strip()]
+    tune_sets = [int(k) for k in config["TUNE_SETS"].split(",") if k.strip()]
+    if config["MATCHER"] and (not (train_sets and tune_sets) or set(train_sets) & set(tune_sets)
+                              or set(sets) & set(train_sets + tune_sets)):
+        raise SystemExit("MATCHER needs non-empty TRAIN_SETS and TUNE_SETS, disjoint from each other and from SETS")
+    if any(not 0 <= k < n_sets for k in train_sets + tune_sets):
+        raise SystemExit(f"TRAIN_SETS/TUNE_SETS in .env must be between 0 and N_SETS-1 ({n_sets - 1})")
+    needed = sets + (train_sets + tune_sets if config["MATCHER"] else [])
+    if needed and not all((splits_dir / f"set_{k}").exists() for k in needed):
         print(f"writing the {n_sets} training sets to {splits_dir}")
         HashSplitter(n_sets).write(data_dir / "train", splits_dir)
 
-    def load_source(source: int) -> pd.DataFrame:
-        if sets:  # training sets from data/splits/, concatenated
-            return pd.concat([read_tsv(splits_dir / f"set_{k}" / f"source{source}.tsv", nrows) for k in sets],
+    def load_source(set_list: list[int], source: int) -> pd.DataFrame:
+        if set_list:  # training sets from data/splits/, concatenated
+            return pd.concat([read_tsv(splits_dir / f"set_{k}" / f"source{source}.tsv", nrows) for k in set_list],
                              ignore_index=True)
         return read_tsv(data_dir / split / f"{split}_source{source}.tsv", nrows)
 
@@ -90,22 +104,29 @@ def main():
         return normalizer.transform(transliterator.transform(raw)).assign(
             raw_name=raw["business_name"], raw_address=raw["business_address"])
 
-    sources = {s: prepare(load_source(s)) for s in (1, 2, 3)}
+    def block(set_list: list[int]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Load, prepare and block the given sets (or the full SPLIT when empty): (s1, targets, pairs)."""
+        sources = {s: prepare(load_source(set_list, s)) for s in (1, 2, 3)}
+        print(f"sets {set_list or split}: " + ", ".join(f"source{s} {len(df):,}" for s, df in sources.items()))
+        targets = pd.concat([sources[2], sources[3]], ignore_index=True)
+        start = time.perf_counter()
+        blocker.fit(targets)
+        pairs = blocker.query(sources[1], block_k)
+        print(f"  blocking ({config['BLOCKER']} on {blocker.device}): {len(pairs):,} candidate pairs "
+              f"in {time.perf_counter() - start:.0f}s")
+        return sources[1], targets, pairs
 
-    for s, df in sources.items():
-        print(f"source{s}: {len(df):,} rows")
-
-    start = time.perf_counter()
-    blocker.fit(pd.concat([sources[2], sources[3]], ignore_index=True))
-    pairs = blocker.query(sources[1], block_k)
-    print(f"blocking ({config['BLOCKER']} on {blocker.device}): {len(pairs):,} candidate pairs "
-          f"in {time.perf_counter() - start:.0f}s")
-
-    if sets and nrows is None:  # full sets: ground truth is complete, so blocking recall is meaningful
-        evaluator = F05Evaluator()
+    def load_truth(set_list: list[int]) -> dict[str, set[str]]:
         truth = {}
-        for k in sets:
+        for k in set_list:
             truth |= evaluator.load(splits_dir / f"set_{k}" / "ground_truth.tsv")
+        return truth
+
+    evaluator = F05Evaluator()
+    s1, targets, pairs = block(sets)
+    truth = load_truth(sets) if sets and nrows is None else None  # complete ground truth only for full sets
+
+    if truth:
         def report(label: str, subset: pd.DataFrame) -> None:
             candidates = subset.groupby("s1_id")["cand_id"].agg(set).to_dict()
             print(f"  {label}: recall {evaluator.blocking_recall(candidates, truth):.3f}  "
@@ -118,6 +139,45 @@ def main():
         for member in [c.removeprefix("score_") for c in pairs.columns if c.startswith("score_")]:
             report(f"found by {member}", pairs[pairs[f"score_{member}"] > 0])
 
+    if not config["MATCHER"]:
+        return
+    matcher = pick(MATCHERS, config, "MATCHER")
+    featurizer = PairFeaturizer()
+
+    # Featurize the evaluation sets first, then free their records before loading the other sets.
+    features = featurizer.transform(pairs, s1, targets)
+    s1_ids, candidates = s1["entity_id"], pairs[["s1_id", "cand_id"]]
+    del s1, targets, pairs
+
+    def labeled_features(set_list: list[int]) -> tuple[pd.DataFrame, dict[str, set[str]]]:
+        set_truth = load_truth(set_list)
+        set_s1, set_targets, set_pairs = block(set_list)
+        return build_training_pairs(featurizer.transform(set_pairs, set_s1, set_targets), set_truth), set_truth
+
+    start = time.perf_counter()
+    train_features, _ = labeled_features(train_sets)
+    matcher.fit(train_features)
+    print(f"matcher ({config['MATCHER']}) trained on sets {train_sets}: {len(train_features):,} pairs, "
+          f"{int(train_features['label'].sum()):,} true, in {time.perf_counter() - start:.0f}s")
+    del train_features
+
+    tune_features, tune_truth = labeled_features(tune_sets)
+    threshold, tune_f05 = tune_threshold(matcher.predict(tune_features), tune_truth, evaluator)
+    print(f"threshold {threshold:.2f} chosen on sets {tune_sets} (F0.5 there {tune_f05:.4f})")
+    del tune_features
+
+    matches = decide(matcher.predict(features), threshold)
+    Path("output").mkdir(exist_ok=True)
+    write_matching_results(matches, s1_ids, "output/matching_results.tsv")
+    write_candidate_pairs(candidates, s1_ids, "output/candidate_pairs.tsv")
+    print(f"wrote output/matching_results.tsv ({len(matches):,} matches) and output/candidate_pairs.tsv")
+
+    if truth:
+        predicted = matches.groupby("s1_id")["cand_id"].agg(set).to_dict()
+        top1 = features[features["rank"] == 0].groupby("s1_id")["cand_id"].agg(set).to_dict()
+        print(f"F0.5 on sets {sets}: {evaluator.score(predicted, truth):.4f}")
+        print(f"  baseline, predict nothing:         {evaluator.score({}, truth):.4f}")
+        print(f"  baseline, top blocker candidate:   {evaluator.score(top1, truth):.4f}")
 
 if __name__ == "__main__":
     main()
