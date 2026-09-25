@@ -115,3 +115,15 @@ def test_matcher_model_is_loaded_not_trained(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "loaded from" in out and "trained on sets" not in out
     assert "F0.5 on sets [0]:" in out
+
+
+def test_missing_matcher_model_is_trained_saved_then_loaded(tmp_path, monkeypatch, capsys):
+    model = tmp_path / "models" / "m.json"
+    _dataset(tmp_path, 3, "0", matcher="xgb", train_sets="1", tune_sets="2", model=model)
+    monkeypatch.chdir(tmp_path)
+    main.main()
+    first = capsys.readouterr().out
+    assert "trained on sets [1]" in first and f"saved to {model}" in first and model.exists()
+    main.main()
+    second = capsys.readouterr().out
+    assert "loaded from" in second and "trained on sets" not in second
