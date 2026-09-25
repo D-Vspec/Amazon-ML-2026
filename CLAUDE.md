@@ -44,21 +44,40 @@ Addresses:
 
 ## Pipeline order (per field)
 
-1. Null handling (`None`, NaN, `<NULL>`, whitespace-only → `""`).
-2. Unicode NFKC.
-3. Transliterate non-Latin scripts to Latin (offline, deterministic library).
-4. Strip diacritics (NFKD + drop combining marks): `é→e`, `ç→c`.
-5. Lowercase.
-6. Punctuation: `&→and`; `. , - / ( ) [ ] #` → space (field-specific exceptions documented in code).
-7. Abbreviation expansion via explicit token tables (whole-token match only).
-8. Collapse whitespace, strip.
+Each public function runs the whole chain itself — no ordering dependency between functions.
 
-Order matters: transliteration before lowercasing/accent strip; expansion after
-punctuation so `Ltd.` and `Ltd` both hit the table.
+1. Null handling (`None`, NaN, `<NULL>`, `nan`, whitespace-only → `""`).
+2. Unicode NFKC.
+3. `anyascii` transliteration: all Indic scripts → Latin AND accents stripped (`é→e`, `ç→c`).
+4. Lowercase (names: alias markers are resolved BEFORE this — they are case-sensitive).
+5. Punctuation: `&`/`+` → `and`; everything outside `[a-z0-9]` → space
+   (addresses keep `/` and `-` only between digits: `26/34`, `54-18-45`).
+6. Token tables (whole-token only), then collapse whitespace.
+
+## Decisions (confirmed)
+
+- Legal forms kept SHORT: private→pvt, limited→ltd, corporation→corp, incorporated→inc, company→co.
+- Alias markers (`fka`, `f/k/a`, `formerly`, `aka`, `dba`, ... — exact case-sensitive list in code):
+  keep the part AFTER the marker (ground truth: >99.9% of 97k cases). `Aka`/`AKA`/`Dba` are
+  name words, not markers. Marker at the start → no split.
+- `M/s` prefix dropped; back-to-back repeated name words collapsed.
+- `opp`/`opp.`/`opposite` → `opp`, never expanded (Opp, AL is a city).
+- `(we, st)`/`(w)`/`(west)` → `west`, `(ea, st)`/`(e)`/`(east)` → `east`, on the raw string
+  before comma splitting; orphan `st)` parts dropped, dangling `(ea`/`(we` → east/west.
+- `Fl 0` / `Floor 0` dropped; real floors kept.
+- State lookup only on the last part or a part next to the country part (`Washington, DC`).
+- Postal codes only when unmistakable (India: 6 digits not starting with 0, at end or after
+  "pin"; US: `ddddd` / `ddddd-dddd` at end); otherwise empty. Other countries: never.
+- Country normalized ONCE in `clean_record`; downstream functions take the clean lowercase value.
+- No France-specific tables (general rules only). If added later, document that they came from
+  observing the input distribution, not external data.
+- Known limit: name cleaning is idempotent except when the cleaned output contains a lowercase
+  alias marker word (`media aka services`) — re-cleaning would split it. Clean raw input once.
 
 ## Conventions
 
-- Python, stdlib + minimal offline deps (pinned in `requirements.txt`).
+- Python 3.11, venv in `.venv/`, deps pinned in `requirements.txt`. Run tests: `.venv/Scripts/python -m pytest`.
+- Samples: `.venv/Scripts/python notebooks/sample_clean.py` → `output/clean_samples.md`.
 - Abbreviation tables are module-level constants (dicts), sorted, easy to review.
 - Tests in `tests/test_clean.py`; each rule has at least one test using a real data example.
 - Commit after every meaningful change. Keep `TODO.md` current.

@@ -25,7 +25,7 @@ ALIAS_MARKER = re.compile(
     r"(?<!\S)(?:formerly known as|formerly|Formerly|a/k/a|aka|d/b/a|dba|DBA|f/k/a|F/K/A|fka|FKA)(?!\S)"
 )
 MS_PREFIX = re.compile(r"^\s*m/s\b\.?", re.I)  # "M/s Haven Exim" (Messrs)
-WEBSITE = re.compile(r"^(?:https?://)?www\.|\.(?:com|net|org|co\.in|in|fr)\b")
+WEBSITE = re.compile(r"\b(?:https?://)?www\.|\.(?:com|net|org|co\.in|in|fr)\b")
 INITIALS = re.compile(r"\b[a-z](?:\.[a-z])+\.?(?![a-z])")  # "l.l.c." -> "llc", "p.c." -> "pc"
 LEET = [(re.compile(r"(?<=[a-z])0(?=[a-z])"), "o"), (re.compile(r"(?<=[a-z])1(?=[a-z])"), "l")]
 
@@ -80,8 +80,11 @@ CITY_ALIASES = {
 # they are Saint / Doctor / Sainte ("St Louis", "Dr G D Marg").
 STREET_TYPE_FOLLOWERS = {"n", "s", "e", "w", "ne", "nw", "se", "sw", "north", "south", "east", "west",
                          "apt", "apartment", "unit", "suite", "ste", "fl", "floor", "flr", "bldg"}
-ADDRESS_DROP = {"unit", "suite", "city"}  # filler that differs between sources for one address
+ADDRESS_DROP = {"unit", "suite"}  # filler that differs between sources for one address
+# "Ogden City" / "Mumbai City" -> "ogden" / "mumbai"; a "city" mid-part is a name ("Lake City Mall").
+TRAILING_CITY = re.compile(r"(?: city)+$")
 CITY_OF = re.compile(r"^(?:(?:city|town|village) )?of (?=\S)")  # "City of El Paso" -> "el paso"
+NUMERO = re.compile(r"\bn\s*°\s*", re.I)  # "N°157" (anyascii would give "ndeg157") -> "no 157"
 NULL_PARTS = {"null", "na", "n a", "none", "nan"}  # "<NULL>" / "N/A" after cleaning
 
 US_STATES = {
@@ -235,13 +238,13 @@ def _clean_part(part: str, drop_filler: bool = True) -> str:
         else:
             i += 1
     s = " ".join(out)
-    s = CITY_OF.sub("", s) if drop_filler else s
+    s = CITY_OF.sub("", TRAILING_CITY.sub("", s)) if drop_filler else s
     return CITY_ALIASES.get(s, s)
 
 
 def _address_parts(address) -> list[str]:
     """Raw address -> list of cleaned, non-empty comma parts."""
-    s = _to_ascii(_to_text(address)).lower()
+    s = _to_ascii(NUMERO.sub("no ", unicodedata.normalize("NFKC", _to_text(address)))).lower()
     for pattern, repl in DIRECTION_SUFFIXES:
         s = pattern.sub(repl, s)
     parts = []

@@ -106,6 +106,7 @@ def test_legal_forms_consistent_across_spellings():
     ("sjacevendome.com", "sjacevendome"),
     ("AVISSOLUTIONS.COM", "avissolutions"),
     ("www.wilfordhancock.com", "wilfordhancock"),
+    ("Bedwell Madison | www.bedwellma.com", "bedwell madison bedwellma"),
     ("#sjace", "sjace"),
 ])
 def test_website_and_hashtag_names(raw, expected):
@@ -326,6 +327,16 @@ def test_repeated_parts_removed():
     assert clean_address("Mumbai, Mumbai City, Maharashtra") == "mumbai, mh"
 
 
+def test_trailing_city_dropped_mid_part_kept():
+    assert clean_address("3580 Jackson Avenue, Ogden City, UT") == "3580 jackson avenue, ogden, ut"
+    assert clean_address("Shop No. Fa- 14, Lake City Mall, Thane") == "shop no fa 14, lake city mall, thane"
+    assert clean_address("City of El Paso, TX") == "el paso, tx"
+
+
+def test_numero_sign():
+    assert clean_address("Tourcoing, N°157 RUE DU BRUN PAIN") == "tourcoing, no 157 rue du brun pain"
+
+
 def test_city_aliases_whole_part_only():
     assert clean_address("Andheri, Bombay") == "andheri, mumbai"
     assert clean_address("34B Lenin Sarani, Calcutta") == "34b lenin sarani, kolkata"
@@ -422,7 +433,8 @@ def test_deterministic_repeated_calls():
 
 any_text = st.one_of(st.none(), st.just(math.nan), st.text(), st.text(alphabet=st.characters(codec="utf-8")))
 # Text built from the tokens the rules care about, so hypothesis exercises them.
-RULE_WORDS = ["st", "ste", "dr", "fl", "0", "00", "opp", "(we, st)", "(ea", "st)", "(w)", "(e)", "city",
+RULE_WORDS = ["st", "ste", "dr", "fl", "0", "00", "opp", "(we, st)", "(ea", "st)", "(w)", "(e)", "city", "of",
+              "N°", "www.",
               "unit", "kansas", "illinois", "washington", "dc", "india", "us", "m/s", "pvt", "limited",
               "pra", "li", ".com", "l.l.c.", "&", "fka", "dba", "DBA", "Aka", "<NULL>", "nan", "##", "-", "/",
               "maharashtra", "महाराष्ट्र", "é", "Ó"]

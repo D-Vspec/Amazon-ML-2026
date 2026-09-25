@@ -8,53 +8,41 @@ Status: [ ] todo · [~] in progress · [x] done
 3. [x] Sample train TSVs, catalogue noise patterns (see CLAUDE.md)
 4. [x] Write CLAUDE.md
 5. [x] Write TODO.md
-6. [ ] **Get approval on open decisions below before writing clean.py**
-7. [ ] Python env: pick interpreter (3.11 available), create venv, pin deps in `requirements.txt`
-       (pytest + transliteration lib)
+6. [x] Decisions approved (see CLAUDE.md "Decisions")
+7. [x] Python 3.11 venv, `requirements.txt` (anyascii, pytest, hypothesis)
 
-## Base normalization (shared by name + address)
-8.  [ ] `normalize_null(s)` — None/NaN/`<NULL>`/whitespace → `""`
-9.  [ ] `base_normalize(s)` — NFKC → transliterate → strip diacritics → lowercase → collapse spaces
-10. [ ] `transliterate(s)` — all Indic scripts seen (Devanagari, Telugu, Kannada, Tamil, Bengali, Gujarati) → Latin
-11. [ ] `strip_accents(s)` — é→e, è→e, ç→c, Ó→O, etc.
-12. [ ] Tests for 8–11 (incl. determinism: repeated calls identical; empty input)
+## Base normalization
+8.  [x] Null handling (None / NaN / `<NULL>` / `nan` → "")
+9.  [x] NFKC → anyascii (all Indic scripts + accents) → lowercase, inside every public function
+10. [x] Tests incl. determinism and empty input
 
 ## Name cleaning
-13. [ ] Punctuation rules: `&→and`, `. , - / ( ) [ ] # --` → space; drop `m/s` prefix
-14. [ ] Legal-suffix table: corp, pvt, ltd, inc, co, llc/l.l.c., llp, pllc, pc/p.c., lp, opc,
-        + transliterated Indic forms (`limited`, `li.`, `praivet`, …) — tune from real transliteration output
-15. [ ] URL-as-name handling: `foo.com` → `foo` (strip scheme/www/TLD)
-16. [ ] Alias markers (`dba`, `d/b/a`, `fka`, `formerly`, `aka`) — see decision D3
-17. [ ] Collapse immediately repeated tokens (`exim exim` → `exim`)
-18. [ ] `clean_name(s)` tests using real rows from each source
+11. [x] Punctuation, `&`/`+` → and, `M/s` prefix dropped
+12. [x] Legal forms kept short (+ anyascii Indic spellings, Hindi `प्रा. लि.`)
+13. [x] Website names (`foo.com`, `www.`), dotted initials (`l.l.c.`)
+14. [x] Alias markers: keep part after marker, case-sensitive exact list (verified on ground truth)
+15. [x] Collapse back-to-back repeated words
 
 ## Address cleaning
-19. [ ] Junk removal: `##`, `<null>`, `fl 0` / `fl. 0`, leading zeros on house numbers
-20. [ ] Abbreviation table: rd, st*, ave, blk, dr, ln, ct, pl, blvd, hwy, apt, flr, bldg, no, h no,
-        nagar/marg variants, etc. (*St: Street vs Saint — context rule)
-21. [ ] Landmark phrases: normalize `nr`/`opp.`/`near` → canonical, keep following phrase intact;
-        don't treat a bare `opp` city as a landmark
-22. [ ] Component extraction → `{postal, city, state, country_token, rest}` — see decisions D1, D2
-23. [ ] `clean_address(s, country)` tests using real rows (incl. reordered components)
+16. [x] Junk: `##`, `<null>`, `Fl 0`, leading zeros, `N°`
+17. [x] Abbreviations (rd, ave, blk, dr*, st*, ...) with St/Dr/Ste context rules
+18. [x] `opp` kept short; landmark phrases intact
+19. [x] West/East suffix rewrite before comma split; orphan fragments
+20. [x] Components: postal_code (unmistakable only), state (last part / next to country), city, country
+21. [x] Old→new Indian city names, whole part only
 
-## Country cleaning
-24. [ ] `clean_country(s)` — null handling, NFKC, lowercase, strip. Free text, no fixed set.
-25. [ ] Tests incl. `France`, unseen values, empty
+## Country
+22. [x] `clean_country`: open set, normalized once in `clean_record`; test that no lookup uses raw country
 
 ## Integration
-26. [ ] `clean_record(dict) -> dict` wrapper (never drops fields/rows)
-27. [ ] Notebook/script: run cleaners on 1k sampled rows per source, eyeball before/after
-28. [ ] Throughput check on a full source file (must be tractable for ~22M rows)
-29. [ ] Final review of CLAUDE.md + TODO.md, commit
+23. [x] `clean_record(dict) -> dict` (never drops fields)
+24. [x] Property tests: idempotence, ASCII output, never raises
+25. [x] `notebooks/sample_clean.py` → `output/clean_samples.md` (20/country/source + coverage)
+26. [~] **Awaiting review of samples** before blocking
 
-## Open decisions (need your call)
-- D1 State normalization: hand-written local alias tables (e.g. `il`↔`illinois`, `gj`↔`gujarat`)?
-      They are local data, not external lookup — but they are country-specific. Unknown
-      countries (France) would fall back to no state extraction.
-- D2 Postal codes: data has almost none. Extract ONLY clearly-shaped cases (Indian 6-digit at
-      end of address / after "pin"; US `ddddd-dddd`), else leave empty? (Recommended.)
-- D3 Aliases (`X d/b/a Y`): keep full string, or also split into primary/alias fields?
-- D4 Legal suffixes: expand (`llc` → `limited liability company`) or canonicalize to one token
-      (`l.l.c.` → `llc`)? Brief says expand for corp/pvt/ltd/inc/co; unclear for llc/llp/pc.
-- D5 Transliteration library: `anyascii` (ISC, offline, all scripts, deterministic) vs
-      `indic-transliteration` (needs script detection per string). Recommend anyascii.
+## Open questions (from sample review)
+27. [ ] State position rule (3b) misses 13.2% of US/India rows whose state is the FIRST (5.9%) or a
+        MIDDLE (7.3%) part. Every non-empty address has a state part somewhere. Widen the rule?
+28. [ ] Postal codes: 0% extracted — the data has no postal codes (train or France test samples).
+29. [ ] France: no state/city extracted and `R.`/`All.`/`Rte` not expanded (no France tables, by decision).
+30. [ ] Throughput ~7.8k records/s single process → ~47 min for ~22M rows. Parallelize when running on full data.
