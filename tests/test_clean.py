@@ -7,8 +7,9 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 import clean
-from clean import (ALIAS_MARKER, POSTAL_AFTER_PIN, POSTAL_AT_END, clean_address, clean_country,
-                   clean_name, clean_record, parse_address, resolve_alias)
+from clean import (ALIAS_MARKER, COUNTRY_LEGAL_FORMS, COUNTRY_NAME_WORDS, COUNTRY_STREET_WORDS,
+                   POSTAL_AFTER_PIN, POSTAL_AT_END, clean_address, clean_country, clean_name,
+                   clean_record, parse_address, resolve_alias)
 
 
 # ---------------------------------------------------------------- nulls / base
@@ -406,11 +407,55 @@ def test_downstream_receives_clean_country(monkeypatch):
 def test_no_lookup_uses_raw_country():
     """Every country-keyed table is keyed by clean (lowercase) country, and a raw
     country passed downstream by mistake matches nothing."""
-    for table in (POSTAL_AT_END, POSTAL_AFTER_PIN):
+    for table in (POSTAL_AT_END, POSTAL_AFTER_PIN, COUNTRY_LEGAL_FORMS, COUNTRY_NAME_WORDS,
+                  COUNTRY_STREET_WORDS):
         for key in table:
             assert key == clean_country(key), key
     assert parse_address("1 Main St, Austin, TX 78701", "US")["postal_code"] == ""
     assert parse_address("1 Main St, Austin, TX 78701", "us")["postal_code"] == "78701"
+    assert clean_name("Montreal et Cie SARL", "France") == "montreal et cie sarl"
+    assert clean_name("Montreal et Cie SARL", "france") == "montreal and co sarl"
+
+
+def test_clean_name_receives_clean_country(monkeypatch):
+    seen = []
+    real = clean.clean_name
+    monkeypatch.setattr(clean, "clean_name", lambda n, c: seen.append(c) or real(n, c))
+    clean_record({"business_name": "X", "business_address": "Y", "country": " FRANCE"})
+    assert seen == ["france"]
+
+
+# ---------------------------------------------------------------- France (restored from old project)
+
+@pytest.mark.parametrize("raw, expected", [
+    ("Montreal et Cie SARL", "montreal and co sarl"),
+    ("Ets Martin Compagnie", "etablissements martin co"),
+    ("Caux & Fils SARL", "caux and fils sarl"),
+])
+def test_france_name_words(raw, expected):
+    assert clean_name(raw, "france") == expected
+
+
+def test_france_words_only_for_france():
+    assert clean_name("Montreal et Cie SARL", "us") == "montreal et cie sarl"
+    assert clean_address("63 R. DE DIEPPE, LILLE", "us") == "63 r de dieppe, lille"
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("13 R. DU PLESSIS, ST-NAZAIRE, Loire-Atlantique", "13 rue du plessis, saint nazaire, pdl"),
+    ("32 All. Des Jardins, Lille", "32 allee des jardins, lille"),
+    ("147 Rte De Sainte-luce, Nantes", "147 route de sainte luce, nantes"),
+    ("4 Imp le Bigot, Nantes, Pays de la Loire", "4 impasse le bigot, nantes, pdl"),
+])
+def test_france_street_words_and_regions(raw, expected):
+    assert clean_address(raw, "france") == expected
+
+
+def test_france_region_and_departement_agree():
+    a = parse_address("171 R FRANKLIN, ROUBAIX, Nord", "france")
+    b = parse_address("171 Rue Franklin, Roubaix, Hauts-de-France", "france")
+    assert (a["address"], a["state"], a["city"]) == (b["address"], b["state"], b["city"]) == \
+        ("171 rue franklin, roubaix, hdf", "hdf", "roubaix")
 
 
 def test_clean_record_never_drops_fields():
@@ -434,7 +479,7 @@ def test_deterministic_repeated_calls():
 any_text = st.one_of(st.none(), st.just(math.nan), st.text(), st.text(alphabet=st.characters(codec="utf-8")))
 # Text built from the tokens the rules care about, so hypothesis exercises them.
 RULE_WORDS = ["st", "ste", "dr", "fl", "0", "00", "opp", "(we, st)", "(ea", "st)", "(w)", "(e)", "city", "of",
-              "N°", "www.",
+              "N°", "www.", "r", "all", "et", "cie", "nord", "hauts-de-france", "gironde",
               "unit", "kansas", "illinois", "washington", "dc", "india", "us", "m/s", "pvt", "limited",
               "pra", "li", ".com", "l.l.c.", "&", "fka", "dba", "DBA", "Aka", "<NULL>", "nan", "##", "-", "/",
               "maharashtra", "महाराष्ट्र", "é", "Ó"]
@@ -455,18 +500,18 @@ def test_never_raises(raw):
 @settings(max_examples=500)
 @given(texts, countries)
 def test_output_ascii(raw, country):
-    for out in (clean_name(raw), clean_country(raw), *parse_address(raw, country).values()):
+    for out in (clean_name(raw, country), clean_country(raw), *parse_address(raw, country).values()):
         assert out.isascii()
 
 
 @settings(max_examples=500)
-@given(texts)
-def test_name_idempotent(raw):
-    once = clean_name(raw)
+@given(texts, countries)
+def test_name_idempotent(raw, country):
+    once = clean_name(raw, country)
     # Alias markers are case-sensitive on raw input; once lowercased, a real word like
     # "Media Aka Services" -> "media aka services" looks like a marker. Documented limit.
     assume(not ALIAS_MARKER.search(once))
-    assert clean_name(once) == once
+    assert clean_name(once, country) == once
 
 
 @settings(max_examples=500)

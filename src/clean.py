@@ -39,7 +39,14 @@ LEGAL_FORMS = {
     "limirrd": "ltd", "limited": "ltd", "limitet": "ltd",
     "piraivet": "pvt", "praibhet": "pvt", "praivet": "pvt", "praivrr": "pvt", "private": "pvt",
 }
+# Forms that are only legal suffixes in one country ("SA" elsewhere is more likely initials).
+COUNTRY_LEGAL_FORMS = {
+    "france": {"sarl": "sarl", "sas": "sas", "sasu": "sasu", "sci": "sci", "eurl": "eurl", "sa": "sa",
+               "ei": "ei", "snc": "snc", "selarl": "selarl", "scop": "scop", "gie": "gie",
+               "cie": "co", "compagnie": "co"},
+}
 NAME_WORDS = {"st": "saint"}  # in a business name "St" is Saint
+COUNTRY_NAME_WORDS = {"france": {"et": "and", "ets": "etablissements"}}  # French "et" is "&"
 
 # ---------------------------------------------------------------- addresses
 
@@ -63,6 +70,11 @@ STREET_WORDS = {
     "opp": "opp", "opposite": "opp",  # decision 3a: keep "opp" short (Opp, AL is a city)
     "pkwy": "parkway", "pl": "place", "rd": "road", "soc": "society", "sq": "square",
     "ter": "terrace", "trl": "trail",
+}
+# Extra street words that only apply to one country ("R." is "rue" in France, not elsewhere).
+COUNTRY_STREET_WORDS = {
+    "france": {"r": "rue", "all": "allee", "imp": "impasse", "chem": "chemin", "rte": "route",
+               "fg": "faubourg", "crs": "cours", "qu": "quai"},
 }
 # Old/alternate Indian city names; sources mix them ("Mumbai, Bombay", "Kolkata, Calcutta").
 # Applied only to a whole comma part, never inside one ("Opp. Bank Of Baroda" is a landmark).
@@ -113,8 +125,18 @@ INDIA_STATES = {
     "telangana": "tg", "telmgan": "tg", "uttar pradesh": "up", "uttr prdes": "up",
     "uttarakhand": "uk", "west bengal": "wb", "pscimbng": "wb",
 }
-# Full state names are unique across the two tables, so one merged table is safe.
-STATES = US_STATES | INDIA_STATES
+# French regions in the data, with their departements mapped to the region.
+FRANCE_REGIONS = {
+    "hauts de france": "hdf", "nord": "hdf", "pas de calais": "hdf", "aisne": "hdf", "oise": "hdf",
+    "somme": "hdf",
+    "nouvelle aquitaine": "naq", "gironde": "naq", "charente": "naq", "charente maritime": "naq",
+    "correze": "naq", "creuse": "naq", "dordogne": "naq", "landes": "naq", "lot et garonne": "naq",
+    "pyrenees atlantiques": "naq", "deux sevres": "naq", "vienne": "naq", "haute vienne": "naq",
+    "pays de la loire": "pdl", "loire atlantique": "pdl", "maine et loire": "pdl", "mayenne": "pdl",
+    "sarthe": "pdl", "vendee": "pdl",
+}
+# Full state names are unique across countries, so one table is safe for any country label.
+STATES = US_STATES | INDIA_STATES | FRANCE_REGIONS
 STATE_CODES = set(STATES.values())
 
 # Postal codes, only where the shape is unmistakable (decision D4). Keys are cleaned
@@ -180,8 +202,11 @@ def resolve_alias(name: str) -> str:
     return after
 
 
-def clean_name(name) -> str:
-    """Raw business name -> cleaned name. Legal forms are kept in place, in short form."""
+def clean_name(name, country: str = "") -> str:
+    """Raw business name -> cleaned name. Legal forms are kept in place, in short form.
+
+    `country` must already be clean (lowercase), as produced by `clean_country`.
+    """
     s = MS_PREFIX.sub(" ", _to_ascii(_to_text(name)))  # before aliases: "M/s DBA X" has no alias
     s = resolve_alias(s).lower()  # before lowercasing: markers are case-sensitive
     s = WEBSITE.sub(" ", s)
@@ -197,13 +222,15 @@ def clean_name(name) -> str:
             out[-1:] = ["pvt", "ltd"]
         else:
             out.append(tok)
-    out = [NAME_WORDS.get(t, LEGAL_FORMS.get(t, t)) for t in out]
+    words = NAME_WORDS | COUNTRY_NAME_WORDS.get(country, {})
+    legal_forms = LEGAL_FORMS | COUNTRY_LEGAL_FORMS.get(country, {})
+    out = [words.get(t, legal_forms.get(t, t)) for t in out]
     return _non_null(" ".join(_dedupe_adjacent(out)))
 
 
 # ---------------------------------------------------------------- address
 
-def _clean_part(part: str, drop_filler: bool = True) -> str:
+def _clean_part(part: str, street_words: dict[str, str], drop_filler: bool = True) -> str:
     """One comma-separated address part -> cleaned part."""
     m = ORPHAN_OPEN.search(part)
     if m:  # "bandra (ea" -> "bandra east" (the rest of "(Ea, St)" went to another part)
@@ -228,7 +255,7 @@ def _clean_part(part: str, drop_filler: bool = True) -> str:
         elif tok.isdigit():
             out.append(tok.lstrip("0") or "0")
         else:
-            out.append(STREET_WORDS.get(tok, tok))
+            out.append(street_words.get(tok, tok))
     # "Fl 0" / "Floor 0" is a placeholder, not a real floor (decision 3d).
     i = 0
     while i < len(out) - 1:
@@ -242,8 +269,9 @@ def _clean_part(part: str, drop_filler: bool = True) -> str:
     return CITY_ALIASES.get(s, s)
 
 
-def _address_parts(address) -> list[str]:
-    """Raw address -> list of cleaned, non-empty comma parts."""
+def _address_parts(address, country: str = "") -> list[str]:
+    """Raw address + CLEANED country -> list of cleaned, non-empty comma parts."""
+    street_words = STREET_WORDS | COUNTRY_STREET_WORDS.get(country, {})
     s = _to_ascii(NUMERO.sub("no ", unicodedata.normalize("NFKC", _to_text(address)))).lower()
     for pattern, repl in DIRECTION_SUFFIXES:
         s = pattern.sub(repl, s)
@@ -255,9 +283,9 @@ def _address_parts(address) -> list[str]:
         if plain in STATES or plain in STATE_CODES:  # "CT"/"FL" alone are states, not court/floor
             parts.append(plain)
             continue
-        part = _clean_part(raw)
+        part = _clean_part(raw, street_words)
         if part in STATES:  # dropping filler produced a state name ("Kansas City"): keep the filler
-            part = _clean_part(raw, drop_filler=False)
+            part = _clean_part(raw, street_words, drop_filler=False)
         if part and part not in NULL_PARTS:
             parts.append(part)
     return parts
@@ -290,7 +318,7 @@ def parse_address(address, country: str = "") -> dict:
     """
     # Convert state names to codes at the allowed positions, then drop repeated parts.
     # Dropping a part can move a state name next to the country, so repeat until stable.
-    parts = _dedupe_keep_last(_address_parts(address))
+    parts = _dedupe_keep_last(_address_parts(address, country))
     while True:
         converted = [STATES.get(p, p) if i in _state_positions(parts, country) else p
                      for i, p in enumerate(parts)]
@@ -340,7 +368,7 @@ def clean_record(record: dict) -> dict:
     parsed = parse_address(record.get("business_address"), country)
     return {
         **record,
-        "name_clean": clean_name(record.get("business_name")),
+        "name_clean": clean_name(record.get("business_name"), country),
         "address_clean": parsed["address"],
         "postal_code": parsed["postal_code"],
         "state": parsed["state"],

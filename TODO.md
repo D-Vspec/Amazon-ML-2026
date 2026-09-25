@@ -34,15 +34,29 @@ Status: [ ] todo · [~] in progress · [x] done
 ## Country
 22. [x] `clean_country`: open set, normalized once in `clean_record`; test that no lookup uses raw country
 
-## Integration
-23. [x] `clean_record(dict) -> dict` (never drops fields)
-24. [x] Property tests: idempotence, ASCII output, never raises
-25. [x] `notebooks/sample_clean.py` → `output/clean_samples.md` (20/country/source + coverage)
-26. [~] **Awaiting review of samples** before blocking
+## France
+23. [x] France tables restored verbatim from the old project (re-keyed to lowercase "france").
+        Teammate-owned — do not modify.
 
-## Open questions (from sample review)
-27. [ ] State position rule (3b) misses 13.2% of US/India rows whose state is the FIRST (5.9%) or a
-        MIDDLE (7.3%) part. Every non-empty address has a state part somewhere. Widen the rule?
-28. [ ] Postal codes: 0% extracted — the data has no postal codes (train or France test samples).
-29. [ ] France: no state/city extracted and `R.`/`All.`/`Rte` not expanded (no France tables, by decision).
-30. [ ] Throughput ~7.8k records/s single process → ~47 min for ~22M rows. Parallelize when running on full data.
+## Integration
+24. [x] `clean_record(dict) -> dict` (never drops fields)
+25. [x] Property tests: idempotence, ASCII output, never raises
+26. [x] `notebooks/sample_clean.py` → `output/clean_samples.md` (20/country/source + coverage)
+27. [x] `notebooks/spot_check.py` — seeded random spot check
+28. [x] Postal codes: accepted at 0% — source data contains none (noted in CLAUDE.md)
+
+## CLEANING STAGE: COMPLETE except item 29
+
+29. [ ] **State position rule (3b)** — teammate confirming approach. Current rule (last part /
+        next to country) misses 13.2% of US/India rows: state is the FIRST part (5.9%) or a
+        MIDDLE part (7.3%). Every non-empty address has a state part somewhere. Behaviour unchanged.
+
+## Noted, not actioned (for later)
+- `4 Ter Rue …` (French "ter" = house-number suffix) → `4 terrace rue …` via the general `ter` → terrace.
+- City = nearest digit-free part before the state; weak when the part is a street
+  (`Lawerence Road, Delhi` → city `lawerence road`).
+- Throughput 7.8k–17.8k records/s single process (varies with machine load) → ~20–47 min for
+  ~22M rows. Parallelize when running on full data.
+
+## Next (not started — awaiting go-ahead)
+- Blocking stage.

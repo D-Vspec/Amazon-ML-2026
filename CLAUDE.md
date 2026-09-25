@@ -68,9 +68,12 @@ Each public function runs the whole chain itself — no ordering dependency betw
 - State lookup only on the last part or a part next to the country part (`Washington, DC`).
 - Postal codes only when unmistakable (India: 6 digits not starting with 0, at end or after
   "pin"; US: `ddddd` / `ddddd-dddd` at end); otherwise empty. Other countries: never.
+- **The source data does not contain postal codes** (0% extracted across train and the France
+  test samples; 5–6 digit numbers are house numbers). `postal_code` is effectively always empty.
 - Country normalized ONCE in `clean_record`; downstream functions take the clean lowercase value.
-- No France-specific tables (general rules only). If added later, document that they came from
-  observing the input distribution, not external data.
+- France tables (legal forms, `et`/`ets`, street words, regions/départements) are restored verbatim
+  from `Amazon-ML-2026-main`, only re-keyed `"France"` → `"france"`. Owned by a teammate: do NOT
+  modify. Methodology note: they come from observing the input distribution, not external data.
 - Known limit: name cleaning is idempotent except when the cleaned output contains a lowercase
   alias marker word (`media aka services`) — re-cleaning would split it. Clean raw input once.
 
