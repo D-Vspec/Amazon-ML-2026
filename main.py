@@ -2,10 +2,13 @@
 
 import csv
 import os
+import time
 from pathlib import Path
 
 import pandas as pd
 
+from er.blockers.tfidf import TfidfNgramBlocker
+from er.evaluate import F05Evaluator
 from er.normalize import RuleNormalizer
 from er.split import HashSplitter
 from er.transliterate import AnyAsciiTransliterator
@@ -14,6 +17,7 @@ SPLITS_DIR = Path("data/splits")
 
 TRANSLITERATORS = {"anyascii": AnyAsciiTransliterator}
 NORMALIZERS = {"rules": RuleNormalizer}
+BLOCKERS = {"tfidf": TfidfNgramBlocker}
 
 
 def load_config(path: Path = Path(".env")) -> dict[str, str]:
@@ -32,11 +36,11 @@ def load_config(path: Path = Path(".env")) -> dict[str, str]:
     return {key: os.environ.get(key, value) for key, value in config.items()}
 
 
-def pick(registry: dict, config: dict[str, str], key: str):
+def pick(registry: dict, config: dict[str, str], key: str, **kwargs):
     name = config[key]
     if name not in registry:
         raise SystemExit(f"{key}={name!r} in .env is not one of {sorted(registry)}")
-    return registry[name]()
+    return registry[name](**kwargs)
 
 
 def read_tsv(path: Path, nrows: int | None) -> pd.DataFrame:
@@ -54,6 +58,8 @@ def main():
     nrows = int(config["NROWS"]) if config["NROWS"] else None
     transliterator = pick(TRANSLITERATORS, config, "TRANSLITERATOR")
     normalizer = pick(NORMALIZERS, config, "NORMALIZER")
+    blocker = pick(BLOCKERS, config, "BLOCKER", device=config["DEVICE"])
+    block_k = int(config["BLOCK_K"])
 
     if sets and not all((splits_dir / f"set_{k}").exists() for k in sets):
         print(f"writing the {n_sets} training sets to {splits_dir}")
@@ -69,7 +75,23 @@ def main():
 
     for s, df in sources.items():
         print(f"source{s}: {len(df):,} rows")
-        print(df[["entity_id", "name_norm", "legal_form", "address_norm"]].head(3).to_string(index=False))
+
+    start = time.perf_counter()
+    blocker.fit(pd.concat([sources[2], sources[3]], ignore_index=True))
+    pairs = blocker.query(sources[1], block_k)
+    print(f"blocking ({config['BLOCKER']} on {blocker.device}): {len(pairs):,} candidate pairs "
+          f"in {time.perf_counter() - start:.0f}s")
+
+    if sets and nrows is None:  # full sets: ground truth is complete, so blocking recall is meaningful
+        evaluator = F05Evaluator()
+        truth = {}
+        for k in sets:
+            truth |= evaluator.load(splits_dir / f"set_{k}" / "ground_truth.tsv")
+        rank = pairs.groupby("s1_id").cumcount()
+        for k in sorted({1, 5, 10, block_k}):
+            candidates = pairs[rank < k].groupby("s1_id")["cand_id"].agg(set).to_dict()
+            print(f"  recall@{k}: {evaluator.blocking_recall(candidates, truth):.3f}  "
+                  f"mean candidates: {evaluator.mean_candidates(candidates, truth):.1f}")
 
 
 if __name__ == "__main__":

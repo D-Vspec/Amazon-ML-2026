@@ -24,6 +24,10 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]  # so tests can import main.py
+filterwarnings = [  # same informational torch warnings silenced in er/blockers/tfidf.py
+    "ignore:Sparse invariant checks are implicitly disabled:UserWarning",
+    "ignore:Sparse CSR tensor support is in beta state:UserWarning",
+]
 
 # CUDA 12.8 builds of PyTorch (needed for the RTX 50xx / Blackwell GPU); everything else comes from PyPI.
 [[tool.uv.index]]

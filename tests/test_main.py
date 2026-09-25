@@ -22,14 +22,15 @@ def _dataset(tmp_path, n_sets, sets):
     train = tmp_path / "ds" / "train"
     train.mkdir(parents=True)
     header = "entity_id\tbusiness_name\tbusiness_address\tcountry\n"
-    s1 = [f"S1-{i}" for i in range(50)]
-    (train / "train_source1.tsv").write_text(header + "".join(f"{x}\tAcme Pvt Ltd\t1 Main St\tIndia\n" for x in s1))
-    (train / "train_source2.tsv").write_text(header + "".join(f"S2-{i}\tAcme\tx\tIndia\n" for i in range(50)))
-    (train / "train_source3.tsv").write_text(header + "".join(f"S3-{i}\tAcme\tx\tIndia\n" for i in range(50)))
+    name = lambda i: f"shop {i * 7919 % 10007} traders"  # a distinct business per i; S2-i is S1-i's match
+    (train / "train_source1.tsv").write_text(header + "".join(f"S1-{i}\t{name(i)}\t{i} Main St\tIndia\n" for i in range(50)))
+    (train / "train_source2.tsv").write_text(header + "".join(f"S2-{i}\t{name(i)}\t{i} Main St\tIndia\n" for i in range(50)))
+    (train / "train_source3.tsv").write_text(header + "".join(f"S3-{i}\tother {i}\tx\tIndia\n" for i in range(50)))
     (train / "train_ground_truth.tsv").write_text("source1_entity_id\tmatched_entity_ids\n" +
                                                   "".join(f"S1-{i}\tS2-{i}\n" for i in range(50)))
     (tmp_path / ".env").write_text(f"DATA_DIR={tmp_path / 'ds'}\nN_SETS={n_sets}\nSETS={sets}\nSPLIT=train\n"
-                                   "NROWS=\nTRANSLITERATOR=anyascii\nNORMALIZER=rules\n")
+                                   "NROWS=\nTRANSLITERATOR=anyascii\nNORMALIZER=rules\n"
+                                   "BLOCKER=tfidf\nBLOCK_K=5\nDEVICE=cpu\n")
 
 
 def test_main_runs_from_env_and_creates_missing_sets(tmp_path, monkeypatch, capsys):
@@ -37,7 +38,9 @@ def test_main_runs_from_env_and_creates_missing_sets(tmp_path, monkeypatch, caps
     monkeypatch.chdir(tmp_path)
     main.main()
     assert (tmp_path / "data/splits/10_sets/set_9/source1.tsv").exists()
-    assert "writing the 10 training sets" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "writing the 10 training sets" in out
+    assert "recall@5: 1.000" in out  # every S1 finds its identical S2 record
 
 
 def test_n_sets_gets_its_own_folder(tmp_path, monkeypatch):
