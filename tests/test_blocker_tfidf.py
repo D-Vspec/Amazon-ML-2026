@@ -93,6 +93,17 @@ def test_cpu_and_gpu_agree():
     assert cpu.score.to_numpy() == pytest.approx(gpu.score.to_numpy(), abs=1e-5)
 
 
+def test_score_pairs_matches_query_scores_and_scores_unproposed_pairs(blocker):
+    rows = [("S1-1", "agro india", "office 203 mumbai mh", "India"),
+            ("S1-2", "clyial pony", "9285 perseverance dr harrisburg nc", "US")]
+    pairs = query(blocker, rows, k=2)
+    assert blocker.score_pairs(pairs) == pytest.approx(pairs.score.to_numpy(), abs=1e-5)
+    # S2-2 is outside S1-1's top 2 but shares trigrams ("mh", "office"-less address): a real, smaller score
+    extra = pd.DataFrame({"s1_id": ["S1-1", "S1-1"], "cand_id": ["S2-2", "S2-5"]})
+    scores = blocker.score_pairs(extra)
+    assert 0 < scores[0] < pairs.score.max() and scores[1] >= 0
+
+
 def test_cuda_falls_back_to_cpu_without_gpu(monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     assert TfidfNgramBlocker("cuda").device.type == "cpu"

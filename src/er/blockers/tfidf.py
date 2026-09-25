@@ -13,6 +13,7 @@ warnings.filterwarnings("ignore", message="Sparse CSR tensor support is in beta 
 
 PAIR_COLUMNS = ["s1_id", "cand_id", "score"]
 MAX_SCORES = 250_000_000  # float32 scores held at once per batch (~1 GB)
+PAIR_CHUNK = 1_000_000  # pairs rescored at once in score_pairs
 
 
 class TfidfNgramBlocker:
@@ -30,6 +31,7 @@ class TfidfNgramBlocker:
         """Index the S2+S3 records, one sparse matrix per country."""
         matrix = self.vectorizer.fit_transform(self._text(targets))
         ids = targets["entity_id"].to_numpy()
+        self._target_matrix, self._target_row = matrix, pd.Index(ids)  # kept for score_pairs
         self.targets = {}
         for country, rows in targets.groupby("country").indices.items():
             m = matrix[rows].tocsr()
@@ -42,6 +44,7 @@ class TfidfNgramBlocker:
         """Top-k same-country targets per S1 by cosine similarity, best first. Zero-similarity pairs are dropped."""
         queries = self.vectorizer.transform(self._text(s1_records))
         s1_ids = s1_records["entity_id"].to_numpy()
+        self._query_matrix, self._query_row = queries, pd.Index(s1_ids)  # kept for score_pairs
         frames = []
         for country, rows in s1_records.groupby("country").indices.items():
             if country not in self.targets:  # no S2/S3 records from this country: no candidates
@@ -62,3 +65,14 @@ class TfidfNgramBlocker:
             return pd.DataFrame(columns=PAIR_COLUMNS)
         pairs = pd.concat(frames, ignore_index=True)
         return pairs[pairs["score"] > 0].reset_index(drop=True)
+
+    def score_pairs(self, pairs: pd.DataFrame) -> np.ndarray:
+        """Cosine similarity for any (s1_id, cand_id) pairs from the last fit/query, not just this blocker's top k."""
+        qi = self._query_row.get_indexer(pairs["s1_id"])
+        ti = self._target_row.get_indexer(pairs["cand_id"])
+        out = np.empty(len(pairs), dtype=np.float32)
+        for start in range(0, len(pairs), PAIR_CHUNK):
+            end = start + PAIR_CHUNK
+            rows = self._query_matrix[qi[start:end]].multiply(self._target_matrix[ti[start:end]])
+            out[start:end] = np.asarray(rows.sum(axis=1)).ravel()
+        return out
