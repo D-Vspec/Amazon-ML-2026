@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from er.blockers.embedding import EmbeddingBlocker
 from er.blockers.tfidf import TfidfNgramBlocker
+from er.blockers.union import UnionBlocker
 from er.evaluate import F05Evaluator
 from er.normalize import RuleNormalizer
 from er.split import HashSplitter
@@ -17,7 +19,7 @@ SPLITS_DIR = Path("data/splits")
 
 TRANSLITERATORS = {"anyascii": AnyAsciiTransliterator}
 NORMALIZERS = {"rules": RuleNormalizer}
-BLOCKERS = {"tfidf": TfidfNgramBlocker}
+BLOCKERS = {"tfidf": TfidfNgramBlocker, "embedding": EmbeddingBlocker}
 
 
 def load_config(path: Path = Path(".env")) -> dict[str, str]:
@@ -36,11 +38,23 @@ def load_config(path: Path = Path(".env")) -> dict[str, str]:
     return {key: os.environ.get(key, value) for key, value in config.items()}
 
 
-def pick(registry: dict, config: dict[str, str], key: str, **kwargs):
+def pick(registry: dict, config: dict[str, str], key: str):
     name = config[key]
     if name not in registry:
         raise SystemExit(f"{key}={name!r} in .env is not one of {sorted(registry)}")
-    return registry[name](**kwargs)
+    return registry[name]()
+
+
+def make_blocker(config: dict[str, str]):
+    """BLOCKER=tfidf, =embedding, or =tfidf+embedding (a union of the listed blockers)."""
+    names = config["BLOCKER"].split("+")
+    unknown = [name for name in names if name not in BLOCKERS]
+    if unknown:
+        raise SystemExit(f"BLOCKER={config['BLOCKER']!r} in .env: {unknown} not in {sorted(BLOCKERS)}")
+    members = {name: BLOCKERS[name](device=config["DEVICE"], **({"model": config["EMBED_MODEL"]}
+                                                                 if name == "embedding" else {}))
+               for name in names}
+    return members[names[0]] if len(names) == 1 else UnionBlocker(members)
 
 
 def read_tsv(path: Path, nrows: int | None) -> pd.DataFrame:
@@ -58,7 +72,7 @@ def main():
     nrows = int(config["NROWS"]) if config["NROWS"] else None
     transliterator = pick(TRANSLITERATORS, config, "TRANSLITERATOR")
     normalizer = pick(NORMALIZERS, config, "NORMALIZER")
-    blocker = pick(BLOCKERS, config, "BLOCKER", device=config["DEVICE"])
+    blocker = make_blocker(config)
     block_k = int(config["BLOCK_K"])
 
     if sets and not all((splits_dir / f"set_{k}").exists() for k in sets):
@@ -71,7 +85,12 @@ def main():
                              ignore_index=True)
         return read_tsv(data_dir / split / f"{split}_source{source}.tsv", nrows)
 
-    sources = {s: normalizer.transform(transliterator.transform(load_source(s))) for s in (1, 2, 3)}
+    def prepare(raw: pd.DataFrame) -> pd.DataFrame:
+        # The transliterator rewrites business_name/address; keep the originals for the embedding blocker.
+        return normalizer.transform(transliterator.transform(raw)).assign(
+            raw_name=raw["business_name"], raw_address=raw["business_address"])
+
+    sources = {s: prepare(load_source(s)) for s in (1, 2, 3)}
 
     for s, df in sources.items():
         print(f"source{s}: {len(df):,} rows")
@@ -87,11 +106,17 @@ def main():
         truth = {}
         for k in sets:
             truth |= evaluator.load(splits_dir / f"set_{k}" / "ground_truth.tsv")
+        def report(label: str, subset: pd.DataFrame) -> None:
+            candidates = subset.groupby("s1_id")["cand_id"].agg(set).to_dict()
+            print(f"  {label}: recall {evaluator.blocking_recall(candidates, truth):.3f}  "
+                  f"mean candidates: {evaluator.mean_candidates(candidates, truth):.1f}")
+
         rank = pairs.groupby("s1_id").cumcount()
         for k in sorted({1, 5, 10, block_k}):
-            candidates = pairs[rank < k].groupby("s1_id")["cand_id"].agg(set).to_dict()
-            print(f"  recall@{k}: {evaluator.blocking_recall(candidates, truth):.3f}  "
-                  f"mean candidates: {evaluator.mean_candidates(candidates, truth):.1f}")
+            report(f"top {k}", pairs[rank < k])
+        report("all candidates", pairs)
+        for member in [c.removeprefix("score_") for c in pairs.columns if c.startswith("score_")]:
+            report(f"found by {member}", pairs[pairs[f"score_{member}"] > 0])
 
 
 if __name__ == "__main__":
