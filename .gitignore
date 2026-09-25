@@ -1,0 +1,19 @@
+# Raw challenge data (~2.5 GB) — never commit
+6ab10eb3b23ba_student_resource/
+data/*
+!data/README.md
+
+# Separate earlier project, not part of this repo
+Amazon-ML-2026-main/
+
+# Generated outputs
+output/*
+!output/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.ipynb_checkpoints/
+.DS_Store
