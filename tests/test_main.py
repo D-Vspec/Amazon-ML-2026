@@ -18,7 +18,7 @@ def test_load_config_falls_back_to_example(tmp_path):
     assert main.load_config(tmp_path / ".env") == {"A": "local"}
 
 
-def _dataset(tmp_path, n_sets, sets):
+def _dataset(tmp_path, n_sets, sets, blocker="tfidf"):
     train = tmp_path / "ds" / "train"
     train.mkdir(parents=True)
     header = "entity_id\tbusiness_name\tbusiness_address\tcountry\n"
@@ -30,7 +30,8 @@ def _dataset(tmp_path, n_sets, sets):
                                                   "".join(f"S1-{i}\tS2-{i}\n" for i in range(50)))
     (tmp_path / ".env").write_text(f"DATA_DIR={tmp_path / 'ds'}\nN_SETS={n_sets}\nSETS={sets}\nSPLIT=train\n"
                                    "NROWS=\nTRANSLITERATOR=anyascii\nNORMALIZER=rules\n"
-                                   "BLOCKER=tfidf\nBLOCK_K=5\nDEVICE=cpu\n")
+                                   f"BLOCKER={blocker}\nBLOCK_K=5\nDEVICE=cpu\n"
+                                   "EMBED_MODEL=intfloat/multilingual-e5-small\n")
 
 
 def test_main_runs_from_env_and_creates_missing_sets(tmp_path, monkeypatch, capsys):
@@ -40,7 +41,23 @@ def test_main_runs_from_env_and_creates_missing_sets(tmp_path, monkeypatch, caps
     assert (tmp_path / "data/splits/10_sets/set_9/source1.tsv").exists()
     out = capsys.readouterr().out
     assert "writing the 10 training sets" in out
-    assert "recall@5: 1.000" in out  # every S1 finds its identical S2 record
+    assert "top 5: recall 1.000" in out  # every S1 finds its identical S2 record
+
+
+def test_union_blocker_reports_each_member(tmp_path, monkeypatch, capsys):
+    _dataset(tmp_path, 10, "0,1", blocker="tfidf+embedding")
+    monkeypatch.chdir(tmp_path)
+    main.main()
+    out = capsys.readouterr().out
+    assert "found by tfidf: recall 1.000" in out
+    assert "found by embedding: recall 1.000" in out
+
+
+def test_unknown_blocker(tmp_path, monkeypatch):
+    _dataset(tmp_path, 10, "0", blocker="tfidf+bm25")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match=r"\['bm25'\] not in"):
+        main.main()
 
 
 def test_n_sets_gets_its_own_folder(tmp_path, monkeypatch):
