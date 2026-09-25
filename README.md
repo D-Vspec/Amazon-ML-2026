@@ -49,8 +49,8 @@ Every stage is a class. Stages communicate only through DataFrames, so any imple
 | Transliterator | ✅ `AnyAsciiTransliterator` | records → records with ASCII name/address |
 | Normalizer | ✅ `RuleNormalizer` | records → records + `name_norm`, `legal_form`, `address_norm` |
 | Blocker | ✅ `TfidfNgramBlocker` + `EmbeddingBlocker` (union) | S1 records + S2/S3 records → candidate pairs `s1_id, cand_id, score` (+ `score_<blocker>`) |
-| Matcher | planned | candidate pairs → match probability per pair |
-| Decider | planned | pairs + probabilities → final matches per S1 |
+| Matcher | ✅ `XgbMatcher` (`model_union.json`: F0.5 0.9638 on set 3) | candidate pairs + features → match probability per pair |
+| Decider | ✅ `decide` / `tune_threshold` | pairs + probabilities → final matches per S1 |
 
 Records have the columns `entity_id, business_name, business_address, country`.
 
@@ -81,6 +81,9 @@ uv run python main.py          # or `python main.py` inside the activated .venv
 | `TRANSLITERATOR` / `NORMALIZER` | implementation names from the registries in `main.py` | `anyascii` / `rules` |
 | `BLOCKER` | `tfidf`, `embedding`, or a union joined with `+` | `tfidf+embedding` |
 | `EMBED_MODEL` | sentence-transformers model for the embedding blocker | `intfloat/multilingual-e5-small` |
+| `MATCHER` | matcher name; empty = stop after blocking | `xgb` |
+| `TRAIN_SETS` / `TUNE_SETS` | sets to train the matcher on / choose the threshold on (both different from `SETS`) | `1` / `2` |
+| `MATCHER_MODEL` | saved model: loaded if the file exists, otherwise trained and saved there | empty (train) |
 | `BLOCK_K` | candidates kept per S1 record | `20` |
 | `DEVICE` | `cuda` to use the GPU when available (falls back to CPU), or `cpu` | `cuda` |
 
