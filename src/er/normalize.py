@@ -45,7 +45,16 @@ STREET_WORDS = {
 COUNTRY_STREET_WORDS = {
     "France": {"r": "rue", "all": "allee", "imp": "impasse", "chem": "chemin", "rte": "route",
                "fg": "faubourg", "crs": "cours", "qu": "quai"},
+    # Old/alternate city names; sources mix them ("Mumbai, Bombay", "Kolkata, Calcutta").
+    "India": {"bombay": "mumbai", "calcutta": "kolkata", "madras": "chennai", "bangalore": "bengaluru",
+              "poona": "pune", "gurgaon": "gurugram", "cochin": "kochi", "calicut": "kozhikode",
+              "trivandrum": "thiruvananthapuram", "ahilyanagar": "ahmednagar", "allahabad": "prayagraj",
+              "mysore": "mysuru", "belgaum": "belagavi", "baroda": "vadodara", "ahmadabad": "ahmedabad",
+              "vishakhapatnam": "visakhapatnam", "sonepat": "sonipat", "kancheepuram": "kanchipuram",
+              "malapuram": "malappuram", "thiruvallur": "tiruvallur", "newdelhi": "new delhi"},
 }
+# "City of El Paso" -> "el paso" ("city" alone is already dropped, leaving "of el paso").
+CITY_OF = re.compile(r"^(?:(?:city|town|village) )?of (?=\S)")
 # "N°" transliterates to "ndeg".
 NUMERO = re.compile(r"\bndeg(?=\d|\s|$)")
 # Unit markers and filler that differ between sources for the same address.
@@ -76,7 +85,7 @@ INDIA_STATES = {
     "tamil nadu": "tn", "tmilnatu": "tn", "gujarat": "gj", "gujrat": "gj",
     "west bengal": "wb", "pscimbng": "wb", "telangana": "tg", "telmgan": "tg",
     "haryana": "hr", "hriyana": "hr", "rajasthan": "rj", "rajsthan": "rj",
-    "kerala": "kl", "kerlm": "kl", "bihar": "br", "madhya pradesh": "mp", "mdhy prdes": "mp",
+    "kerala": "kl", "keralam": "kl", "kerlm": "kl", "bihar": "br", "madhya pradesh": "mp", "mdhy prdes": "mp",
     "andhra pradesh": "ap", "amdhrprdes": "ap", "punjab": "pb", "pmjab": "pb",
     "odisha": "od", "orissa": "od", "od isa": "od", "goa": "ga", "assam": "as",
     "jharkhand": "jh", "chhattisgarh": "cg", "uttarakhand": "uk", "himachal pradesh": "hp",
@@ -146,30 +155,35 @@ class RuleNormalizer:
             if component in STATE_CODES:  # "CT"/"FL" are states here, not court/floor
                 components.append(component)
                 continue
-            kept = [tok for tok in tokens if tok not in ADDRESS_DROP]
-            if " ".join(kept) not in STATES:  # "Kansas City" keeps "city", else it reads as a state
-                tokens = kept
-            tokens = self._expand_street_words(tokens, street_words)
-            tokens = [tok.lstrip("0") or "0" if tok.isdigit() else tok for tok in tokens]
-            component = " ".join(tokens)
+            component = self._component(tokens, street_words, drop_filler=True)
+            if component in STATES:  # dropping filler left a state name ("Kansas City"): keep the filler
+                component = self._component(tokens, street_words, drop_filler=False)
             if component and component not in NULL_COMPONENTS:
                 components.append(component)
-        return ", ".join(components)
+        return ", ".join(dict.fromkeys(components))  # drop repeats ("Kolkata, Kolkata"), keep order
 
     @staticmethod
-    def _expand_street_words(tokens: list[str], street_words: dict[str, str]) -> list[str]:
+    def _component(tokens: list[str], street_words: dict[str, str], drop_filler: bool) -> str:
+        """Expand street words, strip leading zeros and (optionally) drop unit/city filler."""
         out = []
         for i, tok in enumerate(tokens):
+            if drop_filler and tok in ADDRESS_DROP:
+                continue
             nxt = tokens[i + 1] if i + 1 < len(tokens) else None
             street_type = nxt is None or nxt in STREET_TYPE_FOLLOWERS or nxt[0].isdigit() or len(nxt) == 1
             if tok == "st":
                 out.append("street" if street_type else "saint")
-            elif tok == "ste":
-                if not street_type:  # "Ste 200" / "Ste B" is a suite (dropped), "Ste-Foy" is Sainte
+            elif tok == "ste":  # "Ste 200" / "Ste B" is a suite (filler), "Ste-Foy" is Sainte
+                if not street_type:
                     out.append("sainte")
+                elif not drop_filler:
+                    out.append("suite")
+            elif tok.isdigit():
+                out.append(tok.lstrip("0") or "0")
             else:
                 out.append(street_words.get(tok, tok))
-        return out
+        component = " ".join(out)
+        return CITY_OF.sub("", component) if drop_filler else component
 
     def transform(self, records: pd.DataFrame) -> pd.DataFrame:
         records = records.copy()
