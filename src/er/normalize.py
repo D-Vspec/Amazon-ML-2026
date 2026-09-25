@@ -31,7 +31,6 @@ COUNTRY_NAME_WORDS = {"France": {"et": "and", "ets": "etablissements"}}
 DBA = re.compile(r"\b(?:dba|d/b/a|trading as|t/a)\b")
 WEBSITE = re.compile(r"^www\.|\.(?:com|net|org|in|co\.in|fr)\b")
 LEET = [(re.compile(r"(?<=[a-z])0(?=[a-z])"), "o"), (re.compile(r"(?<=[a-z])1(?=[a-z])"), "l")]
-PVT_LTD_ABBR = re.compile(r"\bpra(?:\.\s*|\s+)li\b\.?")  # Devanagari "प्रा. लि."
 INITIALS = re.compile(r"\b[a-z](?:\.[a-z])+\.?(?![a-z])")  # "l.l.c.", "d.b.a", "j.r."
 
 STREET_WORDS = {
@@ -117,7 +116,6 @@ class RuleNormalizer:
         # Reduce to the output alphabet up front, keeping only the punctuation the rules below need.
         s = re.sub(r"[^a-z0-9&+./ ]+", " ", name.lower())
         s = WEBSITE.sub(" ", s)
-        s = PVT_LTD_ABBR.sub(" pvt ltd ", s)
         # Join initials ("l.l.c." -> "llc"); any other dot separates words ("pvt.ltd" -> "pvt ltd").
         s = INITIALS.sub(lambda m: m.group().replace(".", ""), s).replace(".", " ")
         s = next((part for part in reversed(DBA.split(s)) if re.search(r"[a-z0-9]", part)), "")
@@ -129,7 +127,13 @@ class RuleNormalizer:
 
         legal_forms = LEGAL_FORMS | COUNTRY_LEGAL_FORMS.get(country, {})
         core = [tok for tok in tokens if tok not in legal_forms]
-        legal = sorted({legal_forms[tok] for tok in tokens if tok in legal_forms})
+        legal = {legal_forms[tok] for tok in tokens if tok in legal_forms}
+        # Devanagari "प्रा. लि." transliterates to "pra li". Matched on the core, repeatedly, because removing
+        # other legal words can create a new adjacent pair ("pra pra li li" -> "pra li").
+        while (pair := next((i for i in range(len(core) - 1) if core[i:i + 2] == ["pra", "li"]), None)) is not None:
+            del core[pair:pair + 2]
+            legal |= {"pvt", "ltd"}
+        legal = sorted(legal)
         # "Ss & Co" -> drop the dangling "and" left behind by the legal form.
         while core and core[-1] == "and":
             core.pop()
