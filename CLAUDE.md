@@ -86,7 +86,8 @@ Pipeline stages and their contracts:
 Rules:
 - Stages talk only through these DataFrames. No stage reads another stage's internals.
 - Blockers are combinable: a union of blockers is itself a blocker (concatenate pairs, dedupe on `s1_id, cand_id`).
-- Pick implementations via a plain dict of name → class in the entry point. No plugin frameworks or config systems.
+- Every module is a class. `main.py` (repo root) is the only place that instantiates and connects them.
+- Pick implementations via a plain dict of name → class in `main.py` (e.g. `TRANSLITERATORS`), selected by a CLI flag. No plugin frameworks or config systems.
 - Each blocker is evaluated on its own with the same function: recall@k on a held-out train split.
 - One file per implementation (e.g. `blockers/bm25.py`, `blockers/tfidf.py`, `blockers/lsh.py`).
 
