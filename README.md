@@ -25,11 +25,11 @@ The challenge data (2.4 GB) is git-ignored. Unzip the student resource into the 
 ├── src/er/                 # "entity resolution" package — all pipeline code
 │   ├── transliterate.py    # AnyAsciiTransliterator: any script → ASCII
 │   ├── normalize.py        # RuleNormalizer: name_norm, legal_form, address_norm
-│   ├── split.py            # HashSplitter: cluster-aware train/validation subsets
+│   ├── split.py            # HashSplitter: 10 equal cluster-aware training sets
 │   └── evaluate.py         # F05Evaluator: leaderboard macro F0.5, blocking recall
 ├── tests/                  # pytest tests, one file per module
 ├── docs/                   # how each component works and how it was validated (index: docs/README.md)
-├── data/splits/            # materialized subsets (git-ignored, created by --make-splits)
+├── data/splits/            # the 10 sets (git-ignored, created by --make-splits)
 ├── pyproject.toml          # dependencies + package config (uv / hatchling)
 ├── uv.lock                 # pinned dependency versions
 └── CLAUDE.md               # coding guidelines and project rules
@@ -49,20 +49,14 @@ Every stage is a class. Stages communicate only through DataFrames, so any imple
 
 Records have the columns `entity_id, business_name, business_address, country`.
 
-## Data subsets and scoring
+## Data sets and scoring
 
-Don't evaluate every iteration on the full 12.5M records. Write fixed, representative subsets once:
+The training data is split into 10 equal sets (~220k S1 each) so iterations don't need all 12.5M records:
 
 ```bash
-uv run python main.py --make-splits     # ~22 s, writes data/splits/<tier>/
+uv run python main.py --make-splits     # ~20 s, writes data/splits/set_0..set_9
+uv run python main.py --sets 0          # run on one set; add more sets for a more reliable number
 ```
-
-| Tier | S1 | Use |
-|---|---|---|
-| `val_1` | 22k | fast iteration (pipeline in ~3 s) |
-| `val_5` | 110k | compare models, tune thresholds |
-| `val_10` | 221k | final local number, run rarely |
-| `train_10` / `train` | 220k / 2.0M | fitting; never overlaps validation |
 
 Score with `F05Evaluator` from `src/er/evaluate.py`. Details: [docs/data_splits.md](docs/data_splits.md), [docs/evaluation.md](docs/evaluation.md).
 
@@ -71,7 +65,7 @@ Score with `F05Evaluator` from `src/er/evaluate.py`. Details: [docs/data_splits.
 ```bash
 uv run python main.py --nrows 1000                 # quick run on the first 1000 rows of each source
 uv run python main.py --split test                 # full test split
-uv run python main.py --subset val_1               # a training subset from data/splits/
+uv run python main.py --sets 0 1                   # training sets from data/splits/
 uv run python main.py --transliterator anyascii --normalizer rules   # pick implementations by name
 ```
 
