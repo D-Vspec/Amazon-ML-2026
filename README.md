@@ -23,7 +23,8 @@ The challenge data (2.4 GB) is git-ignored. Unzip the student resource into the 
 .
 ├── main.py                 # entry point: instantiates and connects all stages
 ├── src/er/                 # "entity resolution" package — all pipeline code
-│   └── transliterate.py    # AnyAsciiTransliterator: any script → ASCII
+│   ├── transliterate.py    # AnyAsciiTransliterator: any script → ASCII
+│   └── normalize.py        # RuleNormalizer: name_norm, legal_form, address_norm
 ├── tests/                  # pytest tests, one file per module
 ├── pyproject.toml          # dependencies + package config (uv / hatchling)
 ├── uv.lock                 # pinned dependency versions
@@ -37,7 +38,7 @@ Every stage is a class. Stages communicate only through DataFrames, so any imple
 | Stage | Status | Input → Output |
 |---|---|---|
 | Transliterator | ✅ `AnyAsciiTransliterator` | records → records with ASCII name/address |
-| Normalizer | planned | records → cleaned records (case, abbreviations, suffixes) |
+| Normalizer | ✅ `RuleNormalizer` | records → records + `name_norm`, `legal_form`, `address_norm` |
 | Blocker | planned | S1 records + S2/S3 records → candidate pairs `s1_id, cand_id, score` |
 | Matcher | planned | candidate pairs → match probability per pair |
 | Decider | planned | pairs + probabilities → final matches per S1 |
@@ -49,7 +50,7 @@ Records have the columns `entity_id, business_name, business_address, country`.
 ```bash
 uv run python main.py --nrows 1000                 # quick run on the first 1000 rows of each source
 uv run python main.py --split test                 # full test split
-uv run python main.py --transliterator anyascii    # pick an implementation by name
+uv run python main.py --transliterator anyascii --normalizer rules   # pick implementations by name
 ```
 
 ## Adding an implementation
