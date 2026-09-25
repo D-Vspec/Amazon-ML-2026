@@ -16,8 +16,16 @@ LEGAL_FORMS = {
     "corp": "corp", "corporation": "corp",
     "co": "co", "company": "co",
     "pc": "pc", "opc": "opc",
-    "sarl": "sarl", "sas": "sas", "sasu": "sasu", "sci": "sci", "eurl": "eurl",
 }
+# Forms that are only legal suffixes in one country ("SA" elsewhere is more likely initials).
+COUNTRY_LEGAL_FORMS = {
+    "France": {"sarl": "sarl", "sas": "sas", "sasu": "sasu", "sci": "sci", "eurl": "eurl", "sa": "sa",
+               "ei": "ei", "snc": "snc", "selarl": "selarl", "scop": "scop", "gie": "gie",
+               "cie": "co", "compagnie": "co"},
+}
+# Name word variants: "St" in a business name is Saint; French "et" is "&".
+NAME_WORDS = {"st": "saint"}
+COUNTRY_NAME_WORDS = {"France": {"et": "and", "ets": "etablissements"}}
 
 # "X dba Y" keeps only the trade name Y (the last part that has any letters/digits).
 DBA = re.compile(r"\b(?:dba|d/b/a|trading as|t/a)\b")
@@ -95,7 +103,7 @@ def _clean(text: str, keep: str) -> list[str]:
 
 
 class RuleNormalizer:
-    def normalize_name(self, name: str) -> tuple[str, str]:
+    def normalize_name(self, name: str, country: str = "") -> tuple[str, str]:
         """Return (core name, legal form). Legal-form tokens are pulled out, sorted and deduplicated."""
         # Reduce to the output alphabet up front, keeping only the punctuation the rules below need.
         s = re.sub(r"[^a-z0-9&+./ ]+", " ", name.lower())
@@ -107,17 +115,19 @@ class RuleNormalizer:
         for pattern, repl in LEET:
             s = pattern.sub(repl, s)
         s = s.replace("&", " and ").replace("+", " and ")
-        tokens = _clean(s, keep="")
+        words = NAME_WORDS | COUNTRY_NAME_WORDS.get(country, {})
+        tokens = [words.get(tok, tok) for tok in _clean(s, keep="")]
 
-        core = [tok for tok in tokens if tok not in LEGAL_FORMS]
-        legal = sorted({LEGAL_FORMS[tok] for tok in tokens if tok in LEGAL_FORMS})
+        legal_forms = LEGAL_FORMS | COUNTRY_LEGAL_FORMS.get(country, {})
+        core = [tok for tok in tokens if tok not in legal_forms]
+        legal = sorted({legal_forms[tok] for tok in tokens if tok in legal_forms})
         # "Ss & Co" -> drop the dangling "and" left behind by the legal form.
         while core and core[-1] == "and":
             core.pop()
         while core and core[0] == "and":
             core.pop(0)
         if not core and legal:  # name was only legal words, keep them as the name
-            core = [LEGAL_FORMS.get(tok, tok) for tok in tokens]
+            core = [legal_forms.get(tok, tok) for tok in tokens]
         return " ".join(core), " ".join(legal)
 
     def normalize_address(self, address: str, country: str = "") -> str:
@@ -163,9 +173,9 @@ class RuleNormalizer:
 
     def transform(self, records: pd.DataFrame) -> pd.DataFrame:
         records = records.copy()
-        names = records["business_name"].map(self.normalize_name)
-        records["name_norm"] = names.str[0]
-        records["legal_form"] = names.str[1]
+        names = [self.normalize_name(nm, c) for nm, c in zip(records["business_name"], records["country"])]
+        records["name_norm"] = [core for core, _ in names]
+        records["legal_form"] = [legal for _, legal in names]
         records["address_norm"] = [self.normalize_address(a, c)
                                    for a, c in zip(records["business_address"], records["country"])]
         return records
