@@ -101,11 +101,6 @@ def test_name_dba(raw, expected):
     ("Acme PLLC", "acme", "pllc"),
     ("Acme LP", "acme", "lp"),
     ("Acme OPC Private Limited", "acme", "ltd opc pvt"),
-    ("SCI Ptit Amicale", "ptit amicale", "sci"),                       # French forms
-    ("Boulangerie Martin SARL", "boulangerie martin", "sarl"),
-    ("Martin SAS", "martin", "sas"),
-    ("Martin SASU", "martin", "sasu"),
-    ("Martin EURL", "martin", "eurl"),
     ("Prime Money", "prime money", ""),                                # no legal form
 ])
 def test_legal_form_split(raw, core, form):
@@ -123,13 +118,65 @@ def test_legal_form_split(raw, core, form):
     ("J.R. Industries", "jr industries", ""),
     ("J.R.Industries", "jr industries", ""),              # initials glued to the next word
     ("U.S.A. Motors Corp.", "usa motors", "corp"),
-    ("St. Mary's Clinic", "st mary s clinic", ""),
+    ("St. Mary's Clinic", "saint mary s clinic", ""),
     ("No.1 Bakery", "no 1 bakery", ""),
     ("A0.A", "a0 a", ""),                                 # dot stops the leetspeak fix
 ])
 def test_dots(raw, core, form):
     assert n.normalize_name(raw) == (core, form)
     assert name(core) == core
+
+
+# Real France rows from the test split.
+@pytest.mark.parametrize("raw, core, form", [
+    ("Saint-Nazaire Primaire SAS", "saint nazaire primaire", "sas"),
+    ("St-Nazaire Primaire SAS", "saint nazaire primaire", "sas"),
+    ("GVI Comite Sarl", "gvi comite", "sarl"),
+    ("Ets Asso EURL", "etablissements asso", "eurl"),
+    ("Etablissements Familles EURL", "etablissements familles", "eurl"),
+    ("Departemental Maison (France) SA", "departemental maison france", "sa"),
+    ("Montreal & Cie SARL", "montreal", "co sarl"),
+    ("Montreal et Cie SARL", "montreal", "co sarl"),
+    ("Choeur & Cie France SAS", "choeur and france", "co sas"),
+    ("SCI Ptit Àmicale", "ptit amicale", "sci"),
+    ("Martin SASU", "martin", "sasu"),
+    ("Martin EI", "martin", "ei"),
+    ("Martin SNC", "martin", "snc"),
+    ("Cabinet Dupont SELARL", "cabinet dupont", "selarl"),
+    ("Martin Scop", "martin", "scop"),
+    ("Martin GIE", "martin", "gie"),
+    ("Martin Compagnie", "martin", "co"),
+    ("Parents et Amis", "parents and amis", ""),
+    ("Lycee Du [Marie]", "lycee du marie", ""),
+    ("consciencesection.com", "consciencesection", ""),
+    ("SA", "sa", "sa"),                                       # only a legal word: kept as the name
+])
+def test_france_names(raw, core, form):
+    out = n.normalize_name(t.transliterate(raw), "France")
+    assert out == (core, form)
+    assert n.normalize_name(core, "France")[0] == core
+
+
+@pytest.mark.parametrize("country", ["US", "India", ""])
+@pytest.mark.parametrize("raw, core", [
+    ("SAS Institute", "sas institute"),
+    ("SA Enterprises", "sa enterprises"),
+    ("EI Solutions", "ei solutions"),
+    ("Sci Tech Labs", "sci tech labs"),
+    ("Rahul Et Al", "rahul et al"),
+])
+def test_french_rules_only_in_france(country, raw, core):
+    assert n.normalize_name(raw, country) == (core, "")
+
+
+@pytest.mark.parametrize("raw, core", [
+    ("St. Xavier's School", "saint xavier s school"),
+    ("St Jude Clinic", "saint jude clinic"),
+    ("Saint Jude Clinic", "saint jude clinic"),
+    ("Stjude Clinic", "stjude clinic"),
+])
+def test_st_is_saint_in_names(raw, core):
+    assert name(raw) == core
 
 
 @pytest.mark.parametrize("raw, core", [
@@ -236,7 +283,6 @@ def test_different_businesses_stay_different(a, b):
     ("ശക്തി ഇംപെക്സ് പ്രൈവറ്റ് ലിമിറ്റഡ്", "skti impeks", "ltd pvt"),
     ("ইনোভেটিভ প্রোডাক্টস রেস্টুরেন্ট লিমিটেড", "inobhetibh prodakts resturent", "ltd"),
     ("Red मीडिया प्राइवेट लिमिटेड", "red midiya", "ltd pvt"),
-    ("SCI Ptit Àmicale", "ptit amicale", "sci"),
 ])
 def test_after_transliteration(native, core, form):
     assert n.normalize_name(t.transliterate(native)) == (core, form)
@@ -531,6 +577,15 @@ def _records():
         "business_address": ["Office 203, Mumbai, Maharashtra", "", "12 Rue de la Paix, Paris"],
         "country": ["India", "US", "France"],
     }, index=[5, 6, 7])
+
+
+def test_transform_uses_country_column():
+    df = pd.DataFrame({"entity_id": ["S1-1", "S1-2"], "business_name": ["Martin SA", "Martin SA"],
+                       "business_address": ["5 R Hugo", "5 R Hugo"], "country": ["France", "US"]})
+    out = n.transform(df)
+    assert out.name_norm.tolist() == ["martin", "martin sa"]
+    assert out.legal_form.tolist() == ["sa", ""]
+    assert out.address_norm.tolist() == ["5 rue hugo", "5 r hugo"]
 
 
 def test_transform_adds_columns():

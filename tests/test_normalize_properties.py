@@ -5,13 +5,13 @@ import re
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from er.normalize import LEGAL_FORMS, STATES, RuleNormalizer
+from er.normalize import COUNTRY_LEGAL_FORMS, LEGAL_FORMS, STATES, RuleNormalizer
 from er.transliterate import AnyAsciiTransliterator
 
 n = RuleNormalizer()
 t = AnyAsciiTransliterator()
 
-CANONICAL_LEGAL = set(LEGAL_FORMS.values())
+CANONICAL_LEGAL = set(LEGAL_FORMS.values()) | {v for forms in COUNTRY_LEGAL_FORMS.values() for v in forms.values()}
 NAME_TOKEN = re.compile(r"^[a-z0-9]+$")
 ADDRESS_TOKEN = re.compile(r"^[a-z0-9]+(?:[/-][a-z0-9]+)*$")
 
@@ -35,9 +35,9 @@ def assert_clean_spacing(s):
     assert "  " not in s
 
 
-@given(any_text)
-def test_name_output_shape(raw):
-    core, legal = n.normalize_name(raw)
+@given(any_text, countries)
+def test_name_output_shape(raw, country):
+    core, legal = n.normalize_name(raw, country)
     assert_clean_spacing(core)
     assert all(NAME_TOKEN.match(tok) for tok in core.split())
     legal_tokens = legal.split()
@@ -45,10 +45,10 @@ def test_name_output_shape(raw):
     assert legal_tokens == sorted(set(legal_tokens))
 
 
-@given(any_text)
-def test_name_core_idempotent(raw):
-    core, _ = n.normalize_name(raw)
-    assert n.normalize_name(core)[0] == core
+@given(any_text, countries)
+def test_name_core_idempotent(raw, country):
+    core, _ = n.normalize_name(raw, country)
+    assert n.normalize_name(core, country)[0] == core
 
 
 @given(any_text)
