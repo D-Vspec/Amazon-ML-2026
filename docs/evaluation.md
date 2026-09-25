@@ -39,7 +39,7 @@ One wrong id per entity costs about 25 points. Keeping only a quarter of the tru
 from er.evaluate import F05Evaluator
 e = F05Evaluator()
 
-truth = e.load("data/splits/set_0/ground_truth.tsv")   # {s1_id: set(ids)}
+truth = e.load("data/splits/10_sets/set_0/ground_truth.tsv")   # {s1_id: set(ids)}
 pred = e.load("output/matching_results.tsv")           # same format as the submission file
 e.score(pred, truth)                                   # macro F0.5
 

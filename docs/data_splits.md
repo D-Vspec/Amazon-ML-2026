@@ -1,6 +1,6 @@
 # Data splits
 
-The training data is split into **10 equal sets** (`set_0` … `set_9`), each about 10% of the data. Run on one set for speed, or on several for a more reliable number.
+The training data is split into **`N_SETS` equal sets**, 10 by default (`set_0` … `set_9`, each about 10% of the data). Run on one set for speed, or on several for a more reliable number.
 
 Code: `src/er/split.py` (`HashSplitter`). Tests: `tests/test_split.py`. Scoring: [evaluation.md](evaluation.md).
 
@@ -13,7 +13,7 @@ Every S2/S3 record matches **at most one** S1 record (measured on the ground tru
 ## The rule
 
 ```
-set = crc32(id) % 10
+set = crc32(id) % N_SETS          # N_SETS = 10 by default
 ```
 
 - **S1 record, its ground-truth row and all its matches:** the set of the S1 id.
@@ -48,9 +48,11 @@ SETS=0          # one set: pipeline in ~27 s
 SETS=0,1,2      # three sets, concatenated: ~79 s
 ```
 
-The first run writes `data/splits/set_0..set_9` automatically (~20 s, git-ignored).
+The first run writes `data/splits/10_sets/set_0..set_9` automatically (~20 s, git-ignored).
 
-Each `data/splits/set_k/` holds `source1.tsv`, `source2.tsv`, `source3.tsv` and `ground_truth.tsv`, in the same format as the original files. Score with `F05Evaluator.load("data/splits/set_0/ground_truth.tsv")`.
+`N_SETS` in `.env` changes the number of sets. Each count gets its own folder (`data/splits/<N>_sets/`), because a different count assigns records to different sets. `SETS` must stay below `N_SETS`. The measured numbers above are for the default of 10.
+
+Each `data/splits/<N>_sets/set_k/` holds `source1.tsv`, `source2.tsv`, `source3.tsv` and `ground_truth.tsv`, in the same format as the original files. Score with `F05Evaluator.load("data/splits/10_sets/set_0/ground_truth.tsv")`.
 
 **Fit on sets you don't score on.** Anything learned from data (a model, a mined word table, a threshold) must be scored on a different set than it was fitted on.
 

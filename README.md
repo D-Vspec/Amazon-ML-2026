@@ -25,12 +25,12 @@ The challenge data (2.4 GB) is git-ignored. Unzip the student resource into the 
 ├── src/er/                 # "entity resolution" package — all pipeline code
 │   ├── transliterate.py    # AnyAsciiTransliterator: any script → ASCII
 │   ├── normalize.py        # RuleNormalizer: name_norm, legal_form, address_norm
-│   ├── split.py            # HashSplitter: 10 equal cluster-aware training sets
+│   ├── split.py            # HashSplitter: N equal cluster-aware training sets (10 by default)
 │   └── evaluate.py         # F05Evaluator: leaderboard macro F0.5, blocking recall
 ├── tests/                  # pytest tests, one file per module
 ├── docs/                   # how each component works and how it was validated (index: docs/README.md)
-├── .env                    # pipeline configuration: data, sets, stage implementations
-├── data/splits/            # the 10 sets (git-ignored, created automatically)
+├── .env.example            # pipeline configuration template (copy to .env, which is git-ignored)
+├── data/splits/<N>_sets/   # the training sets (git-ignored, created automatically)
 ├── pyproject.toml          # dependencies + package config (uv / hatchling)
 ├── uv.lock                 # pinned dependency versions
 └── CLAUDE.md               # coding guidelines and project rules
@@ -52,24 +52,26 @@ Records have the columns `entity_id, business_name, business_address, country`.
 
 ## Data sets and scoring
 
-The training data is split into 10 equal sets (~220k S1 each) so iterations don't need all 12.5M records:
+The training data is split into `N_SETS` equal sets (10 by default, ~220k S1 each) so iterations don't need all 12.5M records.
 
-Set `SETS=0` in `.env` to run on one set, or `SETS=0,1,2` for a more reliable number. The sets are written to `data/splits/` automatically on the first run (~20 s).
+Set `SETS=0` in `.env` to run on one set, or `SETS=0,1,2` for a more reliable number. The sets are written to `data/splits/<N_SETS>_sets/` automatically on the first run (~20 s).
 
 Score with `F05Evaluator` from `src/er/evaluate.py`. Details: [docs/data_splits.md](docs/data_splits.md), [docs/evaluation.md](docs/evaluation.md).
 
 ## Running
 
-Everything is configured in `.env`; run with:
+Everything is configured in `.env`. Copy the template once, then run:
 
 ```bash
+cp .env.example .env           # optional: without .env, main.py uses .env.example
 uv run python main.py          # or `python main.py` inside the activated .venv
 ```
 
 | Key | Meaning | Default |
 |---|---|---|
 | `DATA_DIR` | where the challenge dataset was unzipped | `6ab10eb3b23ba_student_resource/student_resource/dataset` |
-| `SETS` | training sets to run on, e.g. `0` or `0,1,2`; empty = the full `SPLIT` | `0` |
+| `N_SETS` | how many equal sets the training data is split into | `10` |
+| `SETS` | sets to run on, e.g. `0` or `0,1,2` (each below `N_SETS`); empty = the full `SPLIT` | `0` |
 | `SPLIT` | `train` or `test`, used when `SETS` is empty | `train` |
 | `NROWS` | rows per source file for quick runs; empty = all | empty |
 | `TRANSLITERATOR` / `NORMALIZER` | implementation names from the registries in `main.py` | `anyascii` / `rules` |
