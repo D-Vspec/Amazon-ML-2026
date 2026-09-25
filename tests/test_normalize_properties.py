@@ -20,7 +20,10 @@ VOCAB = ["pvt", "ltd", "private", "limited", "llc", "l.l.c.", "inc", "co", "comp
          "t/a", "d/b/a", "&", "+", "and", "pra.", "li.", "elelpi", ".com", "www.", ".co.in", "0", "1", "00",
          "st", "rd", "city", "unit", "#", "null", "<NULL>", "n/a", "-", "/", ",", ".", " ", "  ", "(", ")",
          "[", "]", "***", "kansas", "new york", "delhi", "dilli", "mharastr", "od'isa", "a", "b", "z",
-         "Ram", "Kansas City", "Àmicale", "राम", "ಗುರು", "\t", "‍", "İ", "ß"]
+         "Ram", "Kansas City", "Àmicale", "राम", "ಗುರು", "\t", "‍", "İ", "ß",
+         "r", "imp", "ndeg", "N°", "ste", "st", "saint", "nord", "gironde", "ct", "fl", "florida", "d.b.a.",
+         "l.l.c.", "pvt.ltd", "sa", "ei", "et", "cie", "(india)", "(france)", "bombay", "keralam"]
+countries = st.sampled_from(["US", "India", "France", "", "Germany"])
 tricky_text = st.lists(st.sampled_from(VOCAB), max_size=12).map("".join)
 any_text = st.one_of(st.text(max_size=60), tricky_text)
 settings.register_profile("thorough", max_examples=2000, deadline=None)
@@ -55,9 +58,9 @@ def test_name_empty_only_when_input_has_no_letters_or_digits(raw):
         assert legal == ""
 
 
-@given(any_text)
-def test_address_output_shape(raw):
-    out = n.normalize_address(raw)
+@given(any_text, countries)
+def test_address_output_shape(raw, country):
+    out = n.normalize_address(raw, country)
     if out == "":
         return
     for component in out.split(", "):
@@ -69,10 +72,10 @@ def test_address_output_shape(raw):
                 assert tok == "0" or not tok.startswith("0")
 
 
-@given(any_text)
-def test_address_idempotent(raw):
-    once = n.normalize_address(raw)
-    assert n.normalize_address(once) == once
+@given(any_text, countries)
+def test_address_idempotent(raw, country):
+    once = n.normalize_address(raw, country)
+    assert n.normalize_address(once, country) == once
 
 
 @given(any_text)
