@@ -13,3 +13,6 @@ data/
 
 # local config; the committed template is .env.example
 .env
+
+# trained matcher models (see MATCHER_MODEL in .env)
+models/
