@@ -1,7 +1,8 @@
 """Union of blockers: each proposes its own top-k, and the lists are merged. See docs/blocking.md.
 
-Recall of the union is "found by ANY member". Each pair keeps one score column per member (0 when that
-member didn't propose it), so the matcher can learn how much to trust each blocker.
+Recall of the union is "found by ANY member". Every member scores every merged pair (score_pairs), so each
+pair carries one real similarity per member plus found_by_all, and the matcher can learn how far to trust
+each blocker.
 """
 
 import pandas as pd
@@ -24,7 +25,10 @@ class UnionBlocker:
             pairs = blocker.query(s1_records, k).rename(columns={"score": f"score_{name}"})
             merged = pairs if merged is None else merged.merge(pairs, on=["s1_id", "cand_id"], how="outer")
         member_scores = [f"score_{name}" for name in self.blockers]
-        merged[member_scores] = merged[member_scores].fillna(0.0)
+        merged["found_by_all"] = merged[member_scores].notna().all(axis=1).astype("float32")
+        # Every member scores every pair, so a missing score means "not in my top k", never "similarity 0".
+        for name, blocker in self.blockers.items():
+            merged[f"score_{name}"] = blocker.score_pairs(merged) if len(merged) else merged[f"score_{name}"]
         merged["score"] = merged[member_scores].max(axis=1)
         merged = merged.sort_values(["s1_id", "score"], ascending=[True, False], kind="stable")
-        return merged[["s1_id", "cand_id", "score", *member_scores]].reset_index(drop=True)
+        return merged[["s1_id", "cand_id", "score", *member_scores, "found_by_all"]].reset_index(drop=True)
