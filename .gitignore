@@ -7,3 +7,6 @@ output/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# materialized data splits (see docs/data_splits.md)
+data/
