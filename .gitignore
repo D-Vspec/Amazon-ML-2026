@@ -10,3 +10,6 @@ __pycache__/
 
 # materialized data splits (see docs/data_splits.md)
 data/
+
+# local config; the committed template is .env.example
+.env
