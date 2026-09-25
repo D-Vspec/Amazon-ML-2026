@@ -33,6 +33,13 @@ STREET_WORDS = {
     "fl": "floor", "flr": "floor", "bldg": "building", "apt": "apartment", "apts": "apartments",
     "opp": "opposite", "nr": "near", "dist": "district",
 }
+# Extra street words that only apply to one country ("R." is "rue" in France, not elsewhere).
+COUNTRY_STREET_WORDS = {
+    "France": {"r": "rue", "all": "allee", "imp": "impasse", "chem": "chemin", "rte": "route",
+               "fg": "faubourg", "crs": "cours", "qu": "quai"},
+}
+# "N°" transliterates to "ndeg".
+NUMERO = re.compile(r"\bndeg(?=\d|\s|$)")
 # Unit markers and filler that differ between sources for the same address.
 ADDRESS_DROP = {"unit", "suite", "city"}
 # After these, "st" is a street type ("Elm St NW", "Elm St Apt 5"); before anything else it is "saint".
@@ -67,8 +74,18 @@ INDIA_STATES = {
     "jharkhand": "jh", "chhattisgarh": "cg", "uttarakhand": "uk", "himachal pradesh": "hp",
     "jammu and kashmir": "jk", "puducherry": "py", "chandigarh": "ch",
 }
+# French regions in the data, with their departements mapped to the region.
+FRANCE_REGIONS = {
+    "hauts de france": "hdf", "nord": "hdf", "pas de calais": "hdf", "aisne": "hdf", "oise": "hdf",
+    "somme": "hdf",
+    "nouvelle aquitaine": "naq", "gironde": "naq", "charente": "naq", "charente maritime": "naq",
+    "correze": "naq", "creuse": "naq", "dordogne": "naq", "landes": "naq", "lot et garonne": "naq",
+    "pyrenees atlantiques": "naq", "deux sevres": "naq", "vienne": "naq", "haute vienne": "naq",
+    "pays de la loire": "pdl", "loire atlantique": "pdl", "maine et loire": "pdl", "mayenne": "pdl",
+    "sarthe": "pdl", "vendee": "pdl",
+}
 # Full state names are unique across countries, so one table is safe for any country label.
-STATES = US_STATES | INDIA_STATES
+STATES = US_STATES | INDIA_STATES | FRANCE_REGIONS
 STATE_CODES = set(STATES.values())
 
 
@@ -103,13 +120,14 @@ class RuleNormalizer:
             core = [LEGAL_FORMS.get(tok, tok) for tok in tokens]
         return " ".join(core), " ".join(legal)
 
-    def normalize_address(self, address: str) -> str:
+    def normalize_address(self, address: str, country: str = "") -> str:
         """Normalize each comma-separated component; drop null ones. Order is preserved."""
+        street_words = STREET_WORDS | COUNTRY_STREET_WORDS.get(country, {})
         components = []
         for part in address.lower().split(","):
             # Keep "/" and "-" only inside numbers ("26/34", "54-18-45"); elsewhere they separate words.
             part = re.sub(r"(?<![0-9])[-/]|[-/](?![0-9])", " ", part)
-            tokens = _clean(part, keep="/-")
+            tokens = NUMERO.sub("no ", " ".join(_clean(part, keep="/-"))).split()
             # State lookup on the whole component first, so "Kansas City" is not read as "Kansas".
             component = " ".join(tokens)
             if component in STATES:
@@ -121,7 +139,7 @@ class RuleNormalizer:
             kept = [tok for tok in tokens if tok not in ADDRESS_DROP]
             if " ".join(kept) not in STATES:  # "Kansas City" keeps "city", else it reads as a state
                 tokens = kept
-            tokens = self._expand_street_words(tokens)
+            tokens = self._expand_street_words(tokens, street_words)
             tokens = [tok.lstrip("0") or "0" if tok.isdigit() else tok for tok in tokens]
             component = " ".join(tokens)
             if component and component not in NULL_COMPONENTS:
@@ -129,7 +147,7 @@ class RuleNormalizer:
         return ", ".join(components)
 
     @staticmethod
-    def _expand_street_words(tokens: list[str]) -> list[str]:
+    def _expand_street_words(tokens: list[str], street_words: dict[str, str]) -> list[str]:
         out = []
         for i, tok in enumerate(tokens):
             nxt = tokens[i + 1] if i + 1 < len(tokens) else None
@@ -140,7 +158,7 @@ class RuleNormalizer:
                 if not street_type:  # "Ste 200" / "Ste B" is a suite (dropped), "Ste-Foy" is Sainte
                     out.append("sainte")
             else:
-                out.append(STREET_WORDS.get(tok, tok))
+                out.append(street_words.get(tok, tok))
         return out
 
     def transform(self, records: pd.DataFrame) -> pd.DataFrame:
@@ -148,5 +166,6 @@ class RuleNormalizer:
         names = records["business_name"].map(self.normalize_name)
         records["name_norm"] = names.str[0]
         records["legal_form"] = names.str[1]
-        records["address_norm"] = records["business_address"].map(self.normalize_address)
+        records["address_norm"] = [self.normalize_address(a, c)
+                                   for a, c in zip(records["business_address"], records["country"])]
         return records

@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from er.normalize import INDIA_STATES, LEGAL_FORMS, STATE_CODES, US_STATES, RuleNormalizer
+from er.normalize import FRANCE_REGIONS, INDIA_STATES, LEGAL_FORMS, STATE_CODES, US_STATES, RuleNormalizer
 from er.transliterate import AnyAsciiTransliterator
 
 n = RuleNormalizer()
@@ -308,8 +308,55 @@ def test_india_addresses(raw, expected):
     ("5 Av Victor Hugo, Lyon", "5 avenue victor hugo, lyon"),
     ("8 Bd Haussmann, Paris", "8 boulevard haussmann, paris"),
 ])
-def test_france_addresses_use_generic_rules(raw, expected):
+def test_france_generic_rules_without_country(raw, expected):
     assert n.normalize_address(raw) == expected
+
+
+# Real France rows from the test split.
+@pytest.mark.parametrize("raw, expected", [
+    ("13 R. DU PLESSIS, ST-NAZAIRE, Loire-Atlantique", "13 rue du plessis, saint nazaire, pdl"),
+    ("58 R. MARCEAU, TOURCOING, Nord", "58 rue marceau, tourcoing, hdf"),
+    ("63 R DE LA POTENTE, Tourcoing, Hauts-de-France", "63 rue de la potente, tourcoing, hdf"),
+    ("Ndeg25 R BEETHOVEN, DUNKERQUE", "no 25 rue beethoven, dunkerque"),
+    ("N° 25 Rue Beethoven, Dunkerque", "no 25 rue beethoven, dunkerque"),
+    ("29 Boulevard Du Haut Livrac, Pessac, Nouvelle-Aquitaine", "29 boulevard du haut livrac, pessac, naq"),
+    ("22 PLACE DAUPHINE, MERIGNAC, Gironde", "22 place dauphine, merignac, naq"),
+    ("Merignac, Nouvelle-Aquitaine, 7 Impasse Guynemer", "merignac, naq, 7 impasse guynemer"),
+    ("7 Imp. Guynemer, Merignac", "7 impasse guynemer, merignac"),
+    ("NANTES, 5 AV DE LUSANSAY, Pays de la Loire", "nantes, 5 avenue de lusansay, pdl"),
+    ("# 88 ROUTE DE FORT-MARDYCK, DUNKERQUE, Nord", "88 route de fort mardyck, dunkerque, hdf"),
+    ("88 Rte de Fort-Mardyck, Dunkerque", "88 route de fort mardyck, dunkerque"),
+    ("7 Allee Des Trois Lavoirs, Pessac", "7 allee des trois lavoirs, pessac"),
+    ("7 All. Des Trois Lavoirs, Pessac", "7 allee des trois lavoirs, pessac"),
+    ("1 bis Allee de la Fontaine, Lege-Cap-Ferret, Nouvelle-Aquitaine", "1 bis allee de la fontaine, lege cap ferret, naq"),
+    ("12 Chem. du Moulin, Pornic", "12 chemin du moulin, pornic"),
+    ("3 Qu. de la Fosse, Nantes", "3 quai de la fosse, nantes"),
+    ("113 R DE L'HOMMELET, Roubaix", "113 rue de l hommelet, roubaix"),
+    ("11 R. DE LA GUYAEN, CALAIS, Pas-de-Calais", "11 rue de la guyaen, calais, hdf"),
+])
+def test_france_addresses(raw, expected):
+    out = n.normalize_address(t.transliterate(raw), "France")
+    assert out == expected
+    assert n.normalize_address(out, "France") == out
+
+
+@pytest.mark.parametrize("variants", [
+    ["13 R. DU PLESSIS, ST-NAZAIRE, Loire-Atlantique", "13 Rue du Plessis, Saint-Nazaire, Pays de la Loire"],
+    ["58 R. MARCEAU, TOURCOING, Nord", "58 Rue Marceau, Tourcoing, Hauts-de-France"],
+    ["22 Place Dauphine, Merignac, Gironde", "22 PLACE DAUPHINE, MERIGNAC, Nouvelle-Aquitaine"],
+])
+def test_france_departement_and_region_agree(variants):
+    assert len({n.normalize_address(v, "France") for v in variants}) == 1
+
+
+@pytest.mark.parametrize("region, code", list(FRANCE_REGIONS.items()))
+def test_every_france_region_and_departement(region, code):
+    assert n.normalize_address(f"1 Rue X, Ville, {region}", "France") == f"1 rue x, ville, {code}"
+
+
+@pytest.mark.parametrize("country", ["US", "India", "", "Germany"])
+def test_france_street_words_only_in_france(country):
+    assert n.normalize_address("R K Puram, 5 Imp Road", country) == "r k puram, 5 imp road"
 
 
 @pytest.mark.parametrize("abbr, full", [
