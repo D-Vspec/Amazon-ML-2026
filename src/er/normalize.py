@@ -90,7 +90,7 @@ class RuleNormalizer:
             core.pop()
         while core and core[0] == "and":
             core.pop(0)
-        if not core:  # name was only legal words, keep them as the name
+        if not core and legal:  # name was only legal words, keep them as the name
             core = [LEGAL_FORMS.get(tok, tok) for tok in tokens]
         return " ".join(core), " ".join(legal)
 
@@ -108,7 +108,10 @@ class RuleNormalizer:
             if component in STATES:
                 components.append(STATES[component])
                 continue
-            tokens = [STREET_WORDS.get(tok, tok) for tok in tokens if tok not in ADDRESS_DROP]
+            kept = [tok for tok in tokens if tok not in ADDRESS_DROP]
+            if " ".join(kept) not in STATES:  # "Kansas City" keeps "city", else it reads as a state
+                tokens = kept
+            tokens = [STREET_WORDS.get(tok, tok) for tok in tokens]
             tokens = [tok.lstrip("0") or "0" if tok.isdigit() else tok for tok in tokens]
             component = " ".join(tokens)
             if component:
