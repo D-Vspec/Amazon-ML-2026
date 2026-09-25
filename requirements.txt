@@ -1,0 +1,4 @@
+# Python 3.11 (tested with 3.11.9)
+anyascii==0.3.3
+pytest==9.1.1
+hypothesis==6.168.1
