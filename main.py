@@ -81,12 +81,15 @@ def main():
     blocker = make_blocker(config)
     block_k = int(config["BLOCK_K"])
 
-    model_path = config["MATCHER_MODEL"]  # a saved model to load instead of training; TRAIN_SETS is then unused
-    train_sets = [] if model_path else [int(k) for k in config["TRAIN_SETS"].split(",") if k.strip()]
+    # MATCHER_MODEL: an existing file is loaded instead of training (TRAIN_SETS unused); a missing one is
+    # trained on TRAIN_SETS and saved there, so the next run loads it.
+    model_path = config["MATCHER_MODEL"]
+    load_model = bool(model_path) and Path(model_path).exists()
+    train_sets = [] if load_model else [int(k) for k in config["TRAIN_SETS"].split(",") if k.strip()]
     tune_sets = [int(k) for k in config["TUNE_SETS"].split(",") if k.strip()]
-    if config["MATCHER"] and (not tune_sets or not (model_path or train_sets) or set(train_sets) & set(tune_sets)
+    if config["MATCHER"] and (not tune_sets or not (load_model or train_sets) or set(train_sets) & set(tune_sets)
                               or set(sets) & set(train_sets + tune_sets)):
-        raise SystemExit("MATCHER needs TUNE_SETS and (unless MATCHER_MODEL is set) TRAIN_SETS, "
+        raise SystemExit("MATCHER needs TUNE_SETS and (unless MATCHER_MODEL exists) TRAIN_SETS, "
                          "disjoint from each other and from SETS")
     if any(not 0 <= k < n_sets for k in train_sets + tune_sets):
         raise SystemExit(f"TRAIN_SETS/TUNE_SETS in .env must be between 0 and N_SETS-1 ({n_sets - 1})")
@@ -156,7 +159,7 @@ def main():
         set_s1, set_targets, set_pairs = block(set_list)
         return build_training_pairs(featurizer.transform(set_pairs, set_s1, set_targets), set_truth), set_truth
 
-    if model_path:
+    if load_model:
         matcher = type(matcher).load(model_path)
         print(f"matcher ({config['MATCHER']}) loaded from {model_path}, not retrained")
     else:
@@ -166,6 +169,10 @@ def main():
         print(f"matcher ({config['MATCHER']}) trained on sets {train_sets}: {len(train_features):,} pairs, "
               f"{int(train_features['label'].sum()):,} true, in {time.perf_counter() - start:.0f}s")
         del train_features
+        if model_path:
+            Path(model_path).parent.mkdir(parents=True, exist_ok=True)
+            matcher.save(model_path)
+            print(f"  saved to {model_path}")
 
     tune_features, tune_truth = labeled_features(tune_sets)
     threshold, tune_f05 = tune_threshold(matcher.predict(tune_features), tune_truth, evaluator)
