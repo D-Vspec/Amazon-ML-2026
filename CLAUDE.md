@@ -99,6 +99,12 @@ Rules:
 - Outputs: `output/matching_results.tsv` and `output/candidate_pairs.tsv` (candidates = exactly what the matcher scored). Validate with `utils/validate_submission.py`.
 - Metric is macro F0.5 per S1 entity, singletons included — when unsure, predict no match.
 
+### Documentation
+
+- Every new component ships with a doc in `docs/` (or an update to an existing one) in the same change, and is listed in `docs/README.md`.
+- Docs explain why, how it works step by step, guarantees, limitations and how to extend it.
+- Every example and number in a doc comes from actually running the code. Nothing is estimated.
+
 ### Git
 
 - Never add `Co-Authored-By: Claude` (or any AI attribution) to commit messages or PR descriptions.
