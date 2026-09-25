@@ -46,3 +46,10 @@ def test_rank_and_gap_are_per_s1_even_across_chunks():
 def test_empty_pairs():
     out = PairFeaturizer().transform(PAIRS.iloc[:0], S1, TARGETS)
     assert out.empty and list(out.columns) == ["s1_id", "cand_id"] + FEATURE_COLUMNS
+
+
+def test_blocker_score_columns_pass_through():
+    pairs = PAIRS.assign(score_tfidf=0.3, score_embedding=0.9, found_by_all=1.0, other="x")
+    out = PairFeaturizer().transform(pairs, S1, TARGETS)
+    assert list(out.columns) == ["s1_id", "cand_id"] + FEATURE_COLUMNS + ["score_tfidf", "score_embedding", "found_by_all"]
+    assert (out["score_embedding"] == np.float32(0.9)).all() and out["score_tfidf"].dtype == "float32"

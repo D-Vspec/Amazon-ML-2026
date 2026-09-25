@@ -23,6 +23,11 @@ FEATURE_COLUMNS = [
 ]
 
 
+def blocker_columns(pairs: pd.DataFrame) -> list[str]:
+    """Extra per-blocker columns a union blocker adds (score_<name>, found_by_all); passed through as features."""
+    return [c for c in pairs.columns if c.startswith(("score_", "found_by_"))]
+
+
 def _tok(s: str) -> set[str]:
     return set(s.split()) if s else set()
 
@@ -55,7 +60,7 @@ class PairFeaturizer:
         chunks = [self._transform_chunk(pairs[pairs["s1_id"].isin(s1_ids[i:i + self.chunk_s1])], s1_cols, t_cols)
                   for i in range(0, len(s1_ids), self.chunk_s1)]
         if not chunks:
-            return pd.DataFrame(columns=["s1_id", "cand_id"] + FEATURE_COLUMNS)
+            return pd.DataFrame(columns=["s1_id", "cand_id"] + FEATURE_COLUMNS + blocker_columns(pairs))
         return pd.concat(chunks, ignore_index=True)
 
     def _transform_chunk(self, pairs: pd.DataFrame, s1_cols: pd.DataFrame, t_cols: pd.DataFrame) -> pd.DataFrame:
@@ -100,4 +105,4 @@ class PairFeaturizer:
         df["s1_addr_empty"] = (df["s1_address_norm"] == "").astype(float)
         df["cand_addr_empty"] = (df["cand_address_norm"] == "").astype(float)
 
-        return df[["s1_id", "cand_id"]].join(df[FEATURE_COLUMNS].astype("float32"))
+        return df[["s1_id", "cand_id"]].join(df[FEATURE_COLUMNS + blocker_columns(pairs)].astype("float32"))
