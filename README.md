@@ -25,7 +25,10 @@ The challenge data (2.4 GB) is git-ignored. Unzip the student resource into the 
 ├── src/er/                 # "entity resolution" package — all pipeline code
 │   ├── transliterate.py    # AnyAsciiTransliterator: any script → ASCII
 │   ├── normalize.py        # RuleNormalizer: name_norm, legal_form, address_norm
-│   ├── blockers/tfidf.py   # TfidfNgramBlocker: char-trigram TF-IDF top-k candidates (CPU or GPU)
+│   ├── blockers/           # candidate generation (CPU or GPU)
+│   │   ├── tfidf.py        #   TfidfNgramBlocker: char-trigram TF-IDF on normalized text
+│   │   ├── embedding.py    #   EmbeddingBlocker: multilingual sentence embeddings on raw text
+│   │   └── union.py        #   UnionBlocker: merge the candidates of several blockers
 │   ├── split.py            # HashSplitter: N equal cluster-aware training sets (10 by default)
 │   └── evaluate.py         # F05Evaluator: leaderboard macro F0.5, blocking recall
 ├── tests/                  # pytest tests, one file per module
@@ -45,7 +48,7 @@ Every stage is a class. Stages communicate only through DataFrames, so any imple
 |---|---|---|
 | Transliterator | ✅ `AnyAsciiTransliterator` | records → records with ASCII name/address |
 | Normalizer | ✅ `RuleNormalizer` | records → records + `name_norm`, `legal_form`, `address_norm` |
-| Blocker | ✅ `TfidfNgramBlocker` | S1 records + S2/S3 records → candidate pairs `s1_id, cand_id, score` |
+| Blocker | ✅ `TfidfNgramBlocker` + `EmbeddingBlocker` (union) | S1 records + S2/S3 records → candidate pairs `s1_id, cand_id, score` (+ `score_<blocker>`) |
 | Matcher | planned | candidate pairs → match probability per pair |
 | Decider | planned | pairs + probabilities → final matches per S1 |
 
@@ -75,7 +78,9 @@ uv run python main.py          # or `python main.py` inside the activated .venv
 | `SETS` | sets to run on, e.g. `0` or `0,1,2` (each below `N_SETS`); empty = the full `SPLIT` | `0` |
 | `SPLIT` | `train` or `test`, used when `SETS` is empty | `train` |
 | `NROWS` | rows per source file for quick runs; empty = all | empty |
-| `TRANSLITERATOR` / `NORMALIZER` / `BLOCKER` | implementation names from the registries in `main.py` | `anyascii` / `rules` / `tfidf` |
+| `TRANSLITERATOR` / `NORMALIZER` | implementation names from the registries in `main.py` | `anyascii` / `rules` |
+| `BLOCKER` | `tfidf`, `embedding`, or a union joined with `+` | `tfidf+embedding` |
+| `EMBED_MODEL` | sentence-transformers model for the embedding blocker | `intfloat/multilingual-e5-small` |
 | `BLOCK_K` | candidates kept per S1 record | `20` |
 | `DEVICE` | `cuda` to use the GPU when available (falls back to CPU), or `cpu` | `cuda` |
 
