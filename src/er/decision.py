@@ -35,7 +35,9 @@ def tune_threshold(scored: pd.DataFrame, truth: Truth, evaluator, thresholds=Non
     Run this on a validation set the matcher wasn't trained on (docs/normalize.md's rule applies here
     too: fit on sets you don't score on). Returns (best_threshold, best_f0.5).
     """
-    thresholds = thresholds if thresholds is not None else [i / 100 for i in range(5, 100, 5)]
+    # Coarse steps, then 0.01 steps near the top: tuned thresholds land at 0.9+ (docs/matching.md).
+    thresholds = thresholds if thresholds is not None else ([i / 100 for i in range(5, 90, 5)] +
+                                                            [i / 100 for i in range(90, 100)])
     best_t, best_f = thresholds[0], -1.0
     for t in thresholds:
         pred = {s1: set(g["cand_id"]) for s1, g in decide(scored, t, margin).groupby("s1_id")}
