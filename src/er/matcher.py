@@ -43,3 +43,19 @@ class XgbMatcher:
 
     def feature_importance(self) -> pd.Series:
         return pd.Series(self.model.feature_importances_, index=FEATURE_COLUMNS).sort_values(ascending=False)
+
+    def save(self, path: str) -> None:
+        """Save the fitted booster to `path` (XGBoost's native JSON format, e.g. 'model.json')."""
+        if self.model is None:
+            raise ValueError("fit() before save()")
+        self.model.save_model(path)
+
+    @classmethod
+    def load(cls, path: str, **params) -> "XgbMatcher":
+        """Load a matcher previously written with save(). `params` are stored for reference only
+        (e.g. re-running feature_importance-style introspection) -- the actual model state comes
+        entirely from the saved file, so params don't need to match what was used at fit() time."""
+        obj = cls(**params)
+        obj.model = xgb.XGBClassifier()
+        obj.model.load_model(path)
+        return obj

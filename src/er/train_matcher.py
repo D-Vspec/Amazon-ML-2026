@@ -1,20 +1,22 @@
-"""Train the matcher on one set, validate on another, write outputs for inspection.
+"""Train the matcher on one or more sets, validate on another, write outputs for inspection.
 
 Run from the repo root:
     uv run python scripts/train_matcher.py --train-set 0 --val-set 1
+    uv run python scripts/train_matcher.py --train-set 0 1 --val-set 2   # train on set_0 + set_1
 
 What it does, in order, with timing and sanity numbers printed at each step:
-1. Load data/splits/10_sets/set_<train> and set_<val> (run main.py once first if these don't exist yet
-   — HashSplitter creates them).
-2. Transliterate + normalize S1/S2/S3 for both sets.
-3. Block each set independently (fit on that set's S2+S3, query with that set's S1, k=BLOCK_K).
+1. Load data/splits/10_sets/set_<n> for every --train-set n and for --val-set (run main.py once
+   first if these don't exist yet — HashSplitter creates them). Multiple train sets are concatenated;
+   HashSplitter assigns each entity to exactly one set by id hash, so there's no overlap to worry
+   about when combining them.
+2. Transliterate + normalize S1/S2/S3 for train and val.
+3. Block train and val independently (fit on that side's S2+S3, query with that side's S1, k=BLOCK_K).
 4. Featurize and label the candidate pairs.
-5. Train XGBoost on the TRAIN set only.
+5. Train XGBoost on the TRAIN side only.
 6. Score the VAL set: predict, tune the threshold against real F0.5, decide, write output files.
 
 Fitting the matcher on one set and validating on another follows the same rule as the normalizer
-docs: don't score on data you fit on. Swap --train-set/--val-set and compare if you want a second
-opinion on the threshold.
+docs: don't score on data you fit on. --val-set must not appear in --train-set.
 """
 
 import argparse
@@ -55,6 +57,21 @@ def load_set(set_dir: Path) -> dict[str, pd.DataFrame]:
     return {"s1": read("source1.tsv"), "s2": read("source2.tsv"), "s3": read("source3.tsv")}
 
 
+def load_sets(set_nums: list[int], evaluator: F05Evaluator) -> tuple[dict[str, pd.DataFrame], dict]:
+    """Load and concatenate multiple set_<n> directories. Safe to combine: HashSplitter assigns
+    each entity to exactly one set by id hash, so there's no overlap between sets' rows or ids."""
+    raws = [load_set(SPLITS_DIR / f"set_{n}") for n in set_nums]
+    combined = {
+        "s1": pd.concat([r["s1"] for r in raws], ignore_index=True),
+        "s2": pd.concat([r["s2"] for r in raws], ignore_index=True),
+        "s3": pd.concat([r["s3"] for r in raws], ignore_index=True),
+    }
+    truth = {}
+    for n in set_nums:
+        truth.update(evaluator.load(SPLITS_DIR / f"set_{n}" / "ground_truth.tsv"))
+    return combined, truth
+
+
 def prepare(raw: dict[str, pd.DataFrame], translit, norm) -> dict[str, pd.DataFrame]:
     """Transliterate + normalize S1/S2/S3; return s1 and the concatenated s2+s3 target frame."""
     frames = {k: norm.transform(translit.transform(df)) for k, df in raw.items()}
@@ -70,13 +87,17 @@ def block_and_featurize(prepared: dict[str, pd.DataFrame], device: str) -> pd.Da
     return candidates, feats
 
 
-def run(train_set: int, val_set: int, device: str):
+def run(train_sets: list[int], val_set: int, device: str):
+    if val_set in train_sets:
+        raise ValueError(f"--val-set {val_set} also appears in --train-set {train_sets}; "
+                         "validating on data trained on defeats the point")
+
     evaluator = F05Evaluator()
     translit, norm = AnyAsciiTransliterator(), RuleNormalizer()
 
-    with Timer(f"load set_{train_set}"):
-        train_raw = load_set(SPLITS_DIR / f"set_{train_set}")
-        train_truth = evaluator.load(SPLITS_DIR / f"set_{train_set}" / "ground_truth.tsv")
+    train_label = "+".join(f"set_{n}" for n in train_sets)
+    with Timer(f"load {train_label}"):
+        train_raw, train_truth = load_sets(train_sets, evaluator)
     print(f"  S1={len(train_raw['s1'])}  S2={len(train_raw['s2'])}  S3={len(train_raw['s3'])}"
           f"  singleton_rate={sum(1 for v in train_truth.values() if not v) / len(train_truth):.4f}")
 
@@ -116,6 +137,8 @@ def run(train_set: int, val_set: int, device: str):
 
     with Timer("train xgboost"):
         matcher = XgbMatcher().fit(train_labeled)
+        matcher.save("model.json")
+        print("  saved model to model.json")
     print("  feature importance:")
     print(matcher.feature_importance().to_string())
 
@@ -144,7 +167,8 @@ def run(train_set: int, val_set: int, device: str):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--train-set", type=int, default=0)
+    ap.add_argument("--train-set", type=int, nargs="+", default=[0],
+                    help="One or more set numbers to train on, e.g. --train-set 0 1")
     ap.add_argument("--val-set", type=int, default=1)
     ap.add_argument("--device", default="cuda")  # falls back to cpu automatically if no GPU
     args = ap.parse_args()
