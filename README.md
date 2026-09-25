@@ -26,6 +26,7 @@ The challenge data (2.4 GB) is git-ignored. Unzip the student resource into the 
 │   ├── transliterate.py    # AnyAsciiTransliterator: any script → ASCII
 │   └── normalize.py        # RuleNormalizer: name_norm, legal_form, address_norm
 ├── tests/                  # pytest tests, one file per module
+├── docs/normalization.md   # how transliteration + normalization work, and how they were validated
 ├── pyproject.toml          # dependencies + package config (uv / hatchling)
 ├── uv.lock                 # pinned dependency versions
 └── CLAUDE.md               # coding guidelines and project rules
