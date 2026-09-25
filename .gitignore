@@ -1,0 +1,9 @@
+# challenge data (2.4 GB) and zip artifacts
+6ab10eb3b23ba_student_resource/
+output/
+*.zip
+
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
