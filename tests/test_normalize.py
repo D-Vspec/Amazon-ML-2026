@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from er.normalize import INDIA_STATES, LEGAL_FORMS, US_STATES, RuleNormalizer
+from er.normalize import INDIA_STATES, LEGAL_FORMS, STATE_CODES, US_STATES, RuleNormalizer
 from er.transliterate import AnyAsciiTransliterator
 
 n = RuleNormalizer()
@@ -316,6 +316,22 @@ def test_every_us_state(state, code):
 @pytest.mark.parametrize("state, code", list(INDIA_STATES.items()))
 def test_every_india_state(state, code):
     assert n.normalize_address(f"Plot 1, Town, {state}") == f"plot 1, town, {code}"
+
+
+@pytest.mark.parametrize("code", sorted(STATE_CODES))
+def test_state_codes_kept_as_is(code):
+    assert n.normalize_address(f"1 Main St, Town, {code.upper()}") == f"1 main street, town, {code}"
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("12 Asylum St, Hartford, CT", "12 asylum street, hartford, ct"),        # not "court"
+    ("1 Ocean Dr, Miami, FL", "1 ocean drive, miami, fl"),                  # not "floor"
+    ("4911 Kessler Ave, Fl 0, Wichita, KS", "4911 kessler avenue, floor 0, wichita, ks"),
+    ("51 Main Street, Florida, NY", "51 main street, fl, ny"),
+])
+def test_state_code_vs_street_word(raw, expected):
+    assert n.normalize_address(raw) == expected
+    assert n.normalize_address(expected) == expected
 
 
 @pytest.mark.parametrize("native, code", [

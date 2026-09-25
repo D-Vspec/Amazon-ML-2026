@@ -65,6 +65,7 @@ INDIA_STATES = {
 }
 # Full state names are unique across countries, so one table is safe for any country label.
 STATES = US_STATES | INDIA_STATES
+STATE_CODES = set(STATES.values())
 
 
 def _clean(text: str, keep: str) -> list[str]:
@@ -108,6 +109,9 @@ class RuleNormalizer:
             component = " ".join(tokens)
             if component in STATES:
                 components.append(STATES[component])
+                continue
+            if component in STATE_CODES:  # "CT"/"FL" are states here, not court/floor
+                components.append(component)
                 continue
             kept = [tok for tok in tokens if tok not in ADDRESS_DROP]
             if " ".join(kept) not in STATES:  # "Kansas City" keeps "city", else it reads as a state
