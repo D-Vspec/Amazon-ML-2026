@@ -23,7 +23,7 @@ class FakeBlocker:
         return [self.similarity.get((s, c), 0.0) for s, c in zip(pairs.s1_id, pairs.cand_id)]
 
 
-COLUMNS = ["s1_id", "cand_id", "score", "score_a", "score_b", "found_by_all"]
+COLUMNS = ["s1_id", "cand_id", "score", "score_a", "score_b", "found_by_a", "found_by_b", "found_by_all"]
 
 
 def union(a_pairs, b_pairs, a_sim=None, b_sim=None):
@@ -42,9 +42,12 @@ def test_every_member_scores_every_pair():
               a_sim={("S1-1", "S3-9"): 0.2}, b_sim={("S1-1", "S2-2"): 0.3})
     out = u.query(pd.DataFrame(), 5)
     assert list(out.columns) == COLUMNS
-    rows = {r.cand_id: (r.score, r.score_a, r.score_b, r.found_by_all) for r in out.itertuples()}
+    rows = {r.cand_id: (r.score, r.score_a, r.score_b, r.found_by_a, r.found_by_b, r.found_by_all)
+            for r in out.itertuples()}
     # S3-9 was only proposed by b, yet gets a's real similarity (0.2), not a 0 placeholder.
-    assert rows == {"S2-1": (0.9, 0.9, 0.7, 1.0), "S3-9": (0.8, 0.2, 0.8, 0.0), "S2-2": (0.5, 0.5, 0.3, 0.0)}
+    assert rows == {"S2-1": (0.9, 0.9, 0.7, 1.0, 1.0, 1.0),
+                    "S3-9": (0.8, 0.2, 0.8, 0.0, 1.0, 0.0),
+                    "S2-2": (0.5, 0.5, 0.3, 1.0, 0.0, 0.0)}
 
 
 def test_score_is_best_member_similarity():

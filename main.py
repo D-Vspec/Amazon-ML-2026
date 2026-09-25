@@ -141,8 +141,9 @@ def main():
         for k in sorted({1, 5, 10, block_k}):
             report(f"top {k}", pairs[rank < k])
         report("all candidates", pairs)
-        for member in [c.removeprefix("score_") for c in pairs.columns if c.startswith("score_")]:
-            report(f"found by {member}", pairs[pairs[f"score_{member}"] > 0])
+        for member in [c.removeprefix("found_by_") for c in pairs.columns if c.startswith("found_by_")]:
+            if member != "all":
+                report(f"found by {member}", pairs[pairs[f"found_by_{member}"] == 1])
 
     if not config["MATCHER"]:
         return
