@@ -21,6 +21,11 @@ def test_set_of_deterministic_and_in_range():
     assert {sp.set_of(x) for x in ids} == set(range(10))
 
 
+@pytest.mark.parametrize("n", [2, 5, 20])
+def test_other_set_counts(n):
+    assert {HashSplitter(n).set_of(f"S1-{i}") for i in range(5000)} == set(range(n))
+
+
 def test_sets_roughly_equal():
     counts = pd.Series([sp.set_of(f"S1-{i}") for i in range(100_000)]).value_counts()
     assert counts.min() > 9_500 and counts.max() < 10_500
