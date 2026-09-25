@@ -23,7 +23,8 @@ LEGAL_FORMS = {
 DBA = re.compile(r"\b(?:dba|d/b/a|trading as|t/a)\b")
 WEBSITE = re.compile(r"^www\.|\.(?:com|net|org|in|co\.in|fr)\b")
 LEET = [(re.compile(r"(?<=[a-z])0(?=[a-z])"), "o"), (re.compile(r"(?<=[a-z])1(?=[a-z])"), "l")]
-PVT_LTD_ABBR = re.compile(r"\bpra\.?\s*li\.?(?=\s|$)")  # Devanagari "प्रा. लि."
+PVT_LTD_ABBR = re.compile(r"\bpra(?:\.\s*|\s+)li\b\.?")  # Devanagari "प्रा. लि."
+INITIALS = re.compile(r"\b[a-z](?:\.[a-z])+\.?(?![a-z])")  # "l.l.c.", "d.b.a", "j.r."
 
 STREET_WORDS = {
     "st": "street", "rd": "road", "ave": "avenue", "av": "avenue", "dr": "drive", "ln": "lane",
@@ -78,10 +79,11 @@ class RuleNormalizer:
         """Return (core name, legal form). Legal-form tokens are pulled out, sorted and deduplicated."""
         # Reduce to the output alphabet up front, keeping only the punctuation the rules below need.
         s = re.sub(r"[^a-z0-9&+./ ]+", " ", name.lower())
-        s = next((part for part in reversed(DBA.split(s)) if re.search(r"[a-z0-9]", part)), "")
         s = WEBSITE.sub(" ", s)
         s = PVT_LTD_ABBR.sub(" pvt ltd ", s)
-        s = s.replace(".", "")  # after the rules that need dots, before LEET so "a0.a" is caught
+        # Join initials ("l.l.c." -> "llc"); any other dot separates words ("pvt.ltd" -> "pvt ltd").
+        s = INITIALS.sub(lambda m: m.group().replace(".", ""), s).replace(".", " ")
+        s = next((part for part in reversed(DBA.split(s)) if re.search(r"[a-z0-9]", part)), "")
         for pattern, repl in LEET:
             s = pattern.sub(repl, s)
         s = s.replace("&", " and ").replace("+", " and ")

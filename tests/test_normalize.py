@@ -112,6 +112,26 @@ def test_legal_form_split(raw, core, form):
     assert n.normalize_name(raw) == (core, form)
 
 
+@pytest.mark.parametrize("raw, core, form", [
+    ("Rizavantage One D.B.A. Golden Tavern", "golden tavern", ""),
+    ("Evobrix D.B.A. Kandivali East Stone Private Limited", "kandivali east stone", "ltd pvt"),
+    ("Wexavi Labs D.B.A. Certified Energy Group PLLC", "certified energy group", "pllc"),
+    ("Acme Pvt.Ltd.", "acme", "ltd pvt"),                 # dot between words separates them
+    ("Acme Co.Ltd", "acme", "co ltd"),
+    ("Acme Inc.", "acme", "inc"),
+    ("Acme L.L.C", "acme", "llc"),                        # no trailing dot
+    ("J.R. Industries", "jr industries", ""),
+    ("J.R.Industries", "jr industries", ""),              # initials glued to the next word
+    ("U.S.A. Motors Corp.", "usa motors", "corp"),
+    ("St. Mary's Clinic", "st mary s clinic", ""),
+    ("No.1 Bakery", "no 1 bakery", ""),
+    ("A0.A", "a0 a", ""),                                 # dot stops the leetspeak fix
+])
+def test_dots(raw, core, form):
+    assert n.normalize_name(raw) == (core, form)
+    assert name(core) == core
+
+
 @pytest.mark.parametrize("raw, core", [
     ("Ss & Co", "ss"),                   # dangling "and" removed
     ("*** Ss Co  &", "ss"),
@@ -156,6 +176,11 @@ def test_pvt_ltd_variants_share_legal_form(raw):
 
 def test_llp_spelled_out():
     assert n.normalize_name("adity proprtij elelpi") == ("adity proprtij", "llp")
+
+
+@pytest.mark.parametrize("raw", ["Prali Foods", "Pra1i Foods", "Pra-Lite Foods"])
+def test_pra_li_needs_separator(raw):
+    assert legal(raw) == ""
 
 
 def test_pra_li_needs_both_parts():
