@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "anyascii>=0.3.3",
     "pandas>=3.0.6",
+    "scikit-learn>=1.9.1",
 ]
 
 [build-system]
