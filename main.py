@@ -81,11 +81,13 @@ def main():
     blocker = make_blocker(config)
     block_k = int(config["BLOCK_K"])
 
-    train_sets = [int(k) for k in config["TRAIN_SETS"].split(",") if k.strip()]
+    model_path = config["MATCHER_MODEL"]  # a saved model to load instead of training; TRAIN_SETS is then unused
+    train_sets = [] if model_path else [int(k) for k in config["TRAIN_SETS"].split(",") if k.strip()]
     tune_sets = [int(k) for k in config["TUNE_SETS"].split(",") if k.strip()]
-    if config["MATCHER"] and (not (train_sets and tune_sets) or set(train_sets) & set(tune_sets)
+    if config["MATCHER"] and (not tune_sets or not (model_path or train_sets) or set(train_sets) & set(tune_sets)
                               or set(sets) & set(train_sets + tune_sets)):
-        raise SystemExit("MATCHER needs non-empty TRAIN_SETS and TUNE_SETS, disjoint from each other and from SETS")
+        raise SystemExit("MATCHER needs TUNE_SETS and (unless MATCHER_MODEL is set) TRAIN_SETS, "
+                         "disjoint from each other and from SETS")
     if any(not 0 <= k < n_sets for k in train_sets + tune_sets):
         raise SystemExit(f"TRAIN_SETS/TUNE_SETS in .env must be between 0 and N_SETS-1 ({n_sets - 1})")
     needed = sets + (train_sets + tune_sets if config["MATCHER"] else [])
@@ -154,12 +156,16 @@ def main():
         set_s1, set_targets, set_pairs = block(set_list)
         return build_training_pairs(featurizer.transform(set_pairs, set_s1, set_targets), set_truth), set_truth
 
-    start = time.perf_counter()
-    train_features, _ = labeled_features(train_sets)
-    matcher.fit(train_features)
-    print(f"matcher ({config['MATCHER']}) trained on sets {train_sets}: {len(train_features):,} pairs, "
-          f"{int(train_features['label'].sum()):,} true, in {time.perf_counter() - start:.0f}s")
-    del train_features
+    if model_path:
+        matcher = type(matcher).load(model_path)
+        print(f"matcher ({config['MATCHER']}) loaded from {model_path}, not retrained")
+    else:
+        start = time.perf_counter()
+        train_features, _ = labeled_features(train_sets)
+        matcher.fit(train_features)
+        print(f"matcher ({config['MATCHER']}) trained on sets {train_sets}: {len(train_features):,} pairs, "
+              f"{int(train_features['label'].sum()):,} true, in {time.perf_counter() - start:.0f}s")
+        del train_features
 
     tune_features, tune_truth = labeled_features(tune_sets)
     threshold, tune_f05 = tune_threshold(matcher.predict(tune_features), tune_truth, evaluator)
