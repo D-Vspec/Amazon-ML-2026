@@ -21,7 +21,7 @@ def test_load_config_falls_back_to_example(tmp_path):
 N = 600  # businesses in the fixture: enough per set for TF-IDF max_df and for matcher negatives
 
 
-def _dataset(tmp_path, n_sets, sets, blocker="tfidf", matcher="", train_sets="1", tune_sets="2"):
+def _dataset(tmp_path, n_sets, sets, blocker="tfidf", matcher="", train_sets="1", tune_sets="2", model=""):
     train = tmp_path / "ds" / "train"
     train.mkdir(parents=True)
     header = "entity_id\tbusiness_name\tbusiness_address\tcountry\n"
@@ -37,7 +37,8 @@ def _dataset(tmp_path, n_sets, sets, blocker="tfidf", matcher="", train_sets="1"
                                    "NROWS=\nTRANSLITERATOR=anyascii\nNORMALIZER=rules\n"
                                    f"BLOCKER={blocker}\nBLOCK_K=5\nDEVICE=cpu\n"
                                    "EMBED_MODEL=intfloat/multilingual-e5-small\n"
-                                   f"MATCHER={matcher}\nTRAIN_SETS={train_sets}\nTUNE_SETS={tune_sets}\n")
+                                   f"MATCHER={matcher}\nTRAIN_SETS={train_sets}\nTUNE_SETS={tune_sets}\n"
+                                   f"MATCHER_MODEL={model}\n")
 
 
 def test_main_runs_from_env_and_creates_missing_sets(tmp_path, monkeypatch, capsys):
@@ -98,3 +99,19 @@ def test_matcher_set_roles_validated(tmp_path, monkeypatch, train_sets, tune_set
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit, match="TRAIN_SETS"):
         main.main()
+
+
+def test_matcher_model_is_loaded_not_trained(tmp_path, monkeypatch, capsys):
+    import numpy as np
+    import pandas as pd
+    from er.features import FEATURE_COLUMNS
+    from er.matcher import XgbMatcher
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame(rng.random((200, len(FEATURE_COLUMNS))), columns=FEATURE_COLUMNS).assign(label=[0, 1] * 100)
+    XgbMatcher(n_estimators=5).fit(frame).save(str(tmp_path / "model.json"))
+    _dataset(tmp_path, 3, "0", matcher="xgb", train_sets="", tune_sets="2", model=tmp_path / "model.json")
+    monkeypatch.chdir(tmp_path)
+    main.main()
+    out = capsys.readouterr().out
+    assert "loaded from" in out and "trained on sets" not in out
+    assert "F0.5 on sets [0]:" in out
