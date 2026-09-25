@@ -72,7 +72,7 @@ Challenge spec: `6ab10eb3b23ba_student_resource/student_resource/README.md`. Dat
 
 ### Modularity (required)
 
-Every pipeline stage must be swappable without touching other stages. Swapping BM25 → TF-IDF → MinHash LSH → embeddings must be a one-line change (a name in the entry point/CLI), never an edit inside another stage.
+Every pipeline stage must be swappable without touching other stages. Swapping BM25 → TF-IDF → MinHash LSH → embeddings must be a one-line change (a name in `.env`), never an edit inside another stage.
 
 Pipeline stages and their contracts:
 
@@ -87,7 +87,7 @@ Rules:
 - Stages talk only through these DataFrames. No stage reads another stage's internals.
 - Blockers are combinable: a union of blockers is itself a blocker (concatenate pairs, dedupe on `s1_id, cand_id`).
 - Every module is a class. `main.py` (repo root) is the only place that instantiates and connects them.
-- Pick implementations via a plain dict of name → class in `main.py` (e.g. `TRANSLITERATORS`), selected by a CLI flag. No plugin frameworks or config systems.
+- Pick implementations via a plain dict of name → class in `main.py` (e.g. `TRANSLITERATORS`), selected by a key in `.env` (e.g. `TRANSLITERATOR=anyascii`). No plugin frameworks or config libraries.
 - Each blocker is evaluated on its own with the same function: recall@k on a held-out train split.
 - One file per implementation (e.g. `blockers/bm25.py`, `blockers/tfidf.py`, `blockers/lsh.py`).
 
