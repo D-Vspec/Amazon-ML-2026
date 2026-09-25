@@ -230,6 +230,15 @@ def test_pra_li_needs_separator(raw):
     assert legal(raw) == ""
 
 
+@pytest.mark.parametrize("raw, core", [
+    ("PRA:PRA:LI:LI", "pra pra li li"),         # found by hypothesis: removing the inner pair used to expose a new one
+    ("Acme pra Pvt li", "acme"),                # pair only adjacent once "Pvt" is pulled out as a legal form
+])
+def test_pra_li_pairs_formed_by_removal(raw, core):
+    assert n.normalize_name(raw) == (core, "ltd pvt")
+    assert name(core) == core
+
+
 def test_pra_li_needs_both_parts():
     assert name("Pra Holdings") == "pra holdings"
     assert name("Li Wei Trading") == "li wei trading"
