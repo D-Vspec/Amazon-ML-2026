@@ -11,6 +11,7 @@ from sentence_transformers import SentenceTransformer
 
 PAIR_COLUMNS = ["s1_id", "cand_id", "score"]
 MAX_SCORES = 250_000_000  # scores held at once per batch
+PAIR_CHUNK = 1_000_000  # pairs rescored at once in score_pairs
 
 
 class EmbeddingBlocker:
@@ -30,6 +31,7 @@ class EmbeddingBlocker:
         """Encode the S2+S3 records; keep one embedding matrix per country."""
         vectors = self._encode(targets)
         ids = targets["entity_id"].to_numpy()
+        self._target_vectors, self._target_row = vectors, pd.Index(ids)  # kept for score_pairs
         self.targets = {country: (vectors[torch.from_numpy(rows).to(vectors.device)], ids[rows])
                         for country, rows in targets.groupby("country").indices.items()}
         return self
@@ -38,6 +40,7 @@ class EmbeddingBlocker:
         """Top-k same-country targets per S1 by cosine similarity, best first."""
         vectors = self._encode(s1_records)
         s1_ids = s1_records["entity_id"].to_numpy()
+        self._query_vectors, self._query_row = vectors, pd.Index(s1_ids)  # kept for score_pairs
         frames = []
         for country, rows in s1_records.groupby("country").indices.items():
             if country not in self.targets:  # no S2/S3 records from this country: no candidates
@@ -56,3 +59,14 @@ class EmbeddingBlocker:
         if not frames:
             return pd.DataFrame(columns=PAIR_COLUMNS)
         return pd.concat(frames, ignore_index=True)
+
+    def score_pairs(self, pairs: pd.DataFrame) -> np.ndarray:
+        """Cosine similarity for any (s1_id, cand_id) pairs from the last fit/query, not just this blocker's top k."""
+        qi = torch.from_numpy(self._query_row.get_indexer(pairs["s1_id"])).to(self._query_vectors.device)
+        ti = torch.from_numpy(self._target_row.get_indexer(pairs["cand_id"])).to(self._target_vectors.device)
+        out = np.empty(len(pairs), dtype=np.float32)
+        for start in range(0, len(pairs), PAIR_CHUNK):
+            end = start + PAIR_CHUNK
+            sims = (self._query_vectors[qi[start:end]] * self._target_vectors[ti[start:end]]).sum(dim=1)
+            out[start:end] = sims.float().cpu().numpy()
+        return out

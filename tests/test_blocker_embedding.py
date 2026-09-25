@@ -57,6 +57,15 @@ def test_at_most_k_sorted_and_k_capped_by_country(blocker):
         assert list(g.score) == sorted(g.score, reverse=True)
 
 
+def test_score_pairs_matches_query_scores_and_scores_unproposed_pairs(blocker):
+    rows = records([("S1-1", "Perfect Media", "C 1 A Sector 27, Noida, UP", "India")])
+    pairs = blocker.query(rows, 1)
+    assert blocker.score_pairs(pairs) == pytest.approx(pairs.score.to_numpy(), abs=1e-4)
+    extra = pd.DataFrame({"s1_id": ["S1-1", "S1-1"], "cand_id": ["S2-2", "S2-3"]})  # not in its top 1
+    scores = blocker.score_pairs(extra)
+    assert (scores > 0).all() and (scores < pairs.score.iloc[0]).all()
+
+
 def test_e5_prefix_only_for_e5_models(blocker):
     assert blocker.prefix == "query: "
 
