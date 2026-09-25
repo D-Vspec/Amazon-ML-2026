@@ -43,12 +43,22 @@ class PairFeaturizer:
     def fit(self, *_args) -> "PairFeaturizer":
         return self
 
+    chunk_s1 = 20_000  # S1 records featurized at once; bounds memory (7.6M pairs in one go ran out of 22 GB)
+
     def transform(self, pairs: pd.DataFrame, s1_records: pd.DataFrame,
                  target_records: pd.DataFrame) -> pd.DataFrame:
         """pairs: s1_id, cand_id, score. Rows come back sorted best-first within each s1_id."""
         s1_cols = s1_records.set_index("entity_id")[["name_norm", "legal_form", "address_norm"]]
         t_cols = target_records.set_index("entity_id")[["name_norm", "legal_form", "address_norm"]]
+        # Chunk by S1 so each S1's candidates stay together (rank and score_gap are per S1).
+        s1_ids = pd.Series(pairs["s1_id"].unique()).sort_values().to_numpy()
+        chunks = [self._transform_chunk(pairs[pairs["s1_id"].isin(s1_ids[i:i + self.chunk_s1])], s1_cols, t_cols)
+                  for i in range(0, len(s1_ids), self.chunk_s1)]
+        if not chunks:
+            return pd.DataFrame(columns=["s1_id", "cand_id"] + FEATURE_COLUMNS)
+        return pd.concat(chunks, ignore_index=True)
 
+    def _transform_chunk(self, pairs: pd.DataFrame, s1_cols: pd.DataFrame, t_cols: pd.DataFrame) -> pd.DataFrame:
         df = pairs.merge(s1_cols.add_prefix("s1_"), left_on="s1_id", right_index=True)
         df = df.merge(t_cols.add_prefix("cand_"), left_on="cand_id", right_index=True)
         df = df.sort_values(["s1_id", "score"], ascending=[True, False]).reset_index(drop=True)
@@ -90,4 +100,4 @@ class PairFeaturizer:
         df["s1_addr_empty"] = (df["s1_address_norm"] == "").astype(float)
         df["cand_addr_empty"] = (df["cand_address_norm"] == "").astype(float)
 
-        return df[["s1_id", "cand_id"] + FEATURE_COLUMNS]
+        return df[["s1_id", "cand_id"]].join(df[FEATURE_COLUMNS].astype("float32"))
