@@ -27,14 +27,17 @@ PVT_LTD_ABBR = re.compile(r"\bpra(?:\.\s*|\s+)li\b\.?")  # Devanagari "प्र
 INITIALS = re.compile(r"\b[a-z](?:\.[a-z])+\.?(?![a-z])")  # "l.l.c.", "d.b.a", "j.r."
 
 STREET_WORDS = {
-    "st": "street", "rd": "road", "ave": "avenue", "av": "avenue", "dr": "drive", "ln": "lane",
+    "rd": "road", "ave": "avenue", "av": "avenue", "dr": "drive", "ln": "lane",
     "ct": "court", "pl": "place", "cir": "circle", "blvd": "boulevard", "bd": "boulevard",
     "hwy": "highway", "pkwy": "parkway", "ter": "terrace", "trl": "trail", "sq": "square",
     "fl": "floor", "flr": "floor", "bldg": "building", "apt": "apartment", "apts": "apartments",
     "opp": "opposite", "nr": "near", "dist": "district",
 }
 # Unit markers and filler that differ between sources for the same address.
-ADDRESS_DROP = {"unit", "ste", "suite", "city"}
+ADDRESS_DROP = {"unit", "suite", "city"}
+# After these, "st" is a street type ("Elm St NW", "Elm St Apt 5"); before anything else it is "saint".
+STREET_TYPE_FOLLOWERS = {"n", "s", "e", "w", "ne", "nw", "se", "sw", "north", "south", "east", "west",
+                         "apt", "apartment", "unit", "suite", "ste", "fl", "floor", "flr", "bldg"}
 # Placeholders for a missing component, as they look after cleaning ("<NULL>" -> "null", "N/A" -> "n a").
 NULL_COMPONENTS = {"null", "na", "n a", "none"}
 
@@ -118,12 +121,27 @@ class RuleNormalizer:
             kept = [tok for tok in tokens if tok not in ADDRESS_DROP]
             if " ".join(kept) not in STATES:  # "Kansas City" keeps "city", else it reads as a state
                 tokens = kept
-            tokens = [STREET_WORDS.get(tok, tok) for tok in tokens]
+            tokens = self._expand_street_words(tokens)
             tokens = [tok.lstrip("0") or "0" if tok.isdigit() else tok for tok in tokens]
             component = " ".join(tokens)
             if component and component not in NULL_COMPONENTS:
                 components.append(component)
         return ", ".join(components)
+
+    @staticmethod
+    def _expand_street_words(tokens: list[str]) -> list[str]:
+        out = []
+        for i, tok in enumerate(tokens):
+            nxt = tokens[i + 1] if i + 1 < len(tokens) else None
+            street_type = nxt is None or nxt in STREET_TYPE_FOLLOWERS or nxt[0].isdigit() or len(nxt) == 1
+            if tok == "st":
+                out.append("street" if street_type else "saint")
+            elif tok == "ste":
+                if not street_type:  # "Ste 200" / "Ste B" is a suite (dropped), "Ste-Foy" is Sainte
+                    out.append("sainte")
+            else:
+                out.append(STREET_WORDS.get(tok, tok))
+        return out
 
     def transform(self, records: pd.DataFrame) -> pd.DataFrame:
         records = records.copy()

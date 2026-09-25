@@ -313,7 +313,7 @@ def test_france_addresses_use_generic_rules(raw, expected):
 
 
 @pytest.mark.parametrize("abbr, full", [
-    ("st", "street"), ("rd", "road"), ("ave", "avenue"), ("dr", "drive"), ("ln", "lane"),
+    ("rd", "road"), ("ave", "avenue"), ("dr", "drive"), ("ln", "lane"),
     ("ct", "court"), ("pl", "place"), ("cir", "circle"), ("blvd", "boulevard"), ("hwy", "highway"),
     ("pkwy", "parkway"), ("ter", "terrace"), ("trl", "trail"), ("sq", "square"), ("flr", "floor"),
     ("bldg", "building"), ("opp", "opposite"), ("nr", "near"), ("dist", "district"),
@@ -417,6 +417,28 @@ def test_leading_zeros(raw, expected):
 ])
 def test_slash_and_hyphen_only_kept_between_digits(raw, expected):
     assert n.normalize_address(raw) == expected
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("105 ELM ST, MORGANTON, NC", "105 elm street, morganton, nc"),
+    ("105 Elm St NW", "105 elm street nw"),
+    ("105 Elm St Apt 5", "105 elm street apartment 5"),
+    ("105 Elm St 5", "105 elm street 5"),
+    ("105 Elm St E", "105 elm street e"),
+    ("St Louis, MO", "saint louis, mo"),
+    ("Saint Louis, MO", "saint louis, mo"),
+    ("12 St Marks Pl", "12 saint marks place"),
+    ("13 Rue St Pierre", "13 rue saint pierre"),
+    ("ST-NAZAIRE", "saint nazaire"),
+    ("Ste-Foy", "sainte foy"),
+    ("Ste Anne Street", "sainte anne street"),
+    ("1 Main St, Ste 200", "1 main street, 200"),
+    ("1 Main St, Ste B", "1 main street, b"),
+    ("1 Main St Ste 200", "1 main street 200"),
+])
+def test_st_and_ste_by_context(raw, expected):
+    assert n.normalize_address(raw) == expected
+    assert n.normalize_address(expected) == expected
 
 
 def test_unit_markers_dropped():
