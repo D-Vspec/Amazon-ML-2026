@@ -22,14 +22,14 @@ The README's worked example: predict `S2-00047, S2-00193, S3-00812` when the tru
 
 ## How much precision matters
 
-Measured on `val_1` (22,182 S1 entities) by corrupting the ground truth:
+Measured on `set_0` (220,907 S1 entities) by corrupting the ground truth:
 
 | Prediction | Macro F0.5 |
 |---|---|
 | Exactly the ground truth | **1.0000** |
-| Ground truth plus **one wrong id** for every entity | **0.7518** |
+| Ground truth plus **one wrong id** for every entity | **0.7515** |
 | Only **one** true match per entity (blocking recall 27%) | **0.6965** |
-| Nothing at all | **0.0555** (= the singleton rate) |
+| Nothing at all | **0.0558** (= the singleton rate) |
 
 One wrong id per entity costs about 25 points. Keeping only a quarter of the true matches, all correct, costs about 30. When the matcher is unsure, it should leave the id out.
 
@@ -39,7 +39,7 @@ One wrong id per entity costs about 25 points. Keeping only a quarter of the tru
 from er.evaluate import F05Evaluator
 e = F05Evaluator()
 
-truth = e.load("data/splits/val_5/ground_truth.tsv")   # {s1_id: set(ids)}
+truth = e.load("data/splits/set_0/ground_truth.tsv")   # {s1_id: set(ids)}
 pred = e.load("output/matching_results.tsv")           # same format as the submission file
 e.score(pred, truth)                                   # macro F0.5
 
@@ -59,7 +59,7 @@ Tested in `tests/test_evaluate.py`:
 
 ## Workflow
 
-1. `uv run python main.py --make-splits` once.
-2. Develop on `val_1`, then compare changes on `val_5` using `score` and `blocking_recall`.
-3. Confirm on `val_10` before submitting. Never tune on it.
+1. Run `uv run python main.py --make-splits` once.
+2. Develop and score on one set (`--sets 0`). Use more sets when two versions are close.
+3. Fit anything learned on sets you don't score on.
 4. Report blocking recall and mean candidates alongside F0.5, since together they show where the points are lost.
