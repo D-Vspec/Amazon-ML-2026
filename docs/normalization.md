@@ -24,7 +24,7 @@ Normalization removes the differences that never carry meaning (case, script, pu
 raw records ──► AnyAsciiTransliterator ──► RuleNormalizer ──► blocking / matching
 ```
 
-Both are classes with `transform(df) -> df`, selected by name in `main.py` (`--transliterator anyascii --normalizer rules`).
+Both are classes with `transform(df) -> df`, selected by name in `.env` (`TRANSLITERATOR=anyascii`, `NORMALIZER=rules`).
 
 The normalizer **adds** columns and never changes the raw ones, so later stages can still look at the original text:
 

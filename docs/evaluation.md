@@ -59,7 +59,7 @@ Tested in `tests/test_evaluate.py`:
 
 ## Workflow
 
-1. Run `uv run python main.py --make-splits` once.
-2. Develop and score on one set (`--sets 0`). Use more sets when two versions are close.
+1. Set `SETS=0` in `.env` and run `uv run python main.py` (the sets are created on the first run).
+2. Develop and score on one set. Use more sets (`SETS=0,1,2`) when two versions are close.
 3. Fit anything learned on sets you don't score on.
 4. Report blocking recall and mean candidates alongside F0.5, since together they show where the points are lost.

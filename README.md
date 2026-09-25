@@ -29,7 +29,8 @@ The challenge data (2.4 GB) is git-ignored. Unzip the student resource into the 
 │   └── evaluate.py         # F05Evaluator: leaderboard macro F0.5, blocking recall
 ├── tests/                  # pytest tests, one file per module
 ├── docs/                   # how each component works and how it was validated (index: docs/README.md)
-├── data/splits/            # the 10 sets (git-ignored, created by --make-splits)
+├── .env                    # pipeline configuration: data, sets, stage implementations
+├── data/splits/            # the 10 sets (git-ignored, created automatically)
 ├── pyproject.toml          # dependencies + package config (uv / hatchling)
 ├── uv.lock                 # pinned dependency versions
 └── CLAUDE.md               # coding guidelines and project rules
@@ -53,24 +54,30 @@ Records have the columns `entity_id, business_name, business_address, country`.
 
 The training data is split into 10 equal sets (~220k S1 each) so iterations don't need all 12.5M records:
 
-```bash
-uv run python main.py --make-splits     # ~20 s, writes data/splits/set_0..set_9
-uv run python main.py --sets 0          # run on one set; add more sets for a more reliable number
-```
+Set `SETS=0` in `.env` to run on one set, or `SETS=0,1,2` for a more reliable number. The sets are written to `data/splits/` automatically on the first run (~20 s).
 
 Score with `F05Evaluator` from `src/er/evaluate.py`. Details: [docs/data_splits.md](docs/data_splits.md), [docs/evaluation.md](docs/evaluation.md).
 
 ## Running
 
+Everything is configured in `.env`; run with:
+
 ```bash
-uv run python main.py --nrows 1000                 # quick run on the first 1000 rows of each source
-uv run python main.py --split test                 # full test split
-uv run python main.py --sets 0 1                   # training sets from data/splits/
-uv run python main.py --transliterator anyascii --normalizer rules   # pick implementations by name
+uv run python main.py          # or `python main.py` inside the activated .venv
 ```
+
+| Key | Meaning | Default |
+|---|---|---|
+| `DATA_DIR` | where the challenge dataset was unzipped | `6ab10eb3b23ba_student_resource/student_resource/dataset` |
+| `SETS` | training sets to run on, e.g. `0` or `0,1,2`; empty = the full `SPLIT` | `0` |
+| `SPLIT` | `train` or `test`, used when `SETS` is empty | `train` |
+| `NROWS` | rows per source file for quick runs; empty = all | empty |
+| `TRANSLITERATOR` / `NORMALIZER` | implementation names from the registries in `main.py` | `anyascii` / `rules` |
+
+For a one-off run, an environment variable overrides `.env`: `NROWS=1000 uv run python main.py`.
 
 ## Adding an implementation
 
 1. Write a class in `src/er/` with the same methods as the existing one for that stage (e.g. `transform(df) -> df` for a transliterator).
 2. Register it in the matching dict in `main.py` (e.g. `TRANSLITERATORS`).
-3. Select it with the CLI flag. No other file changes.
+3. Select it by name in `.env`. No other file changes.

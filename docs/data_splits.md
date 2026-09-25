@@ -41,11 +41,14 @@ The rest of each row is India. France appears only in the test data.
 
 ## Usage
 
+Pick sets in `.env`, then run `uv run python main.py`:
+
 ```bash
-uv run python main.py --make-splits        # write data/splits/set_0..set_9 (~20 s, git-ignored)
-uv run python main.py --sets 0             # one set: pipeline in ~28 s
-uv run python main.py --sets 0 1 2         # three sets, concatenated: ~79 s
+SETS=0          # one set: pipeline in ~27 s
+SETS=0,1,2      # three sets, concatenated: ~79 s
 ```
+
+The first run writes `data/splits/set_0..set_9` automatically (~20 s, git-ignored).
 
 Each `data/splits/set_k/` holds `source1.tsv`, `source2.tsv`, `source3.tsv` and `ground_truth.tsv`, in the same format as the original files. Score with `F05Evaluator.load("data/splits/set_0/ground_truth.tsv")`.
 
