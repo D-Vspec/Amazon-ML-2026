@@ -6,6 +6,7 @@ dependencies = [
     "anyascii>=0.3.3",
     "pandas>=3.0.6",
     "scikit-learn>=1.9.1",
+    "torch>=2.11.0",
 ]
 
 [build-system]
@@ -23,3 +24,12 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]  # so tests can import main.py
+
+# CUDA 12.8 builds of PyTorch (needed for the RTX 50xx / Blackwell GPU); everything else comes from PyPI.
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
