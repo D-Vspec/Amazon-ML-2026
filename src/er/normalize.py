@@ -19,8 +19,8 @@ LEGAL_FORMS = {
     "sarl": "sarl", "sas": "sas", "sasu": "sasu", "sci": "sci", "eurl": "eurl",
 }
 
-# Phrases rewritten before tokenizing: "dba X" keeps only the trade name X.
-DBA = re.compile(r"^.*?\b(?:dba|d/b/a|trading as|t/a)\b\s*")
+# "X dba Y" keeps only the trade name Y (the last part that has any letters/digits).
+DBA = re.compile(r"\b(?:dba|d/b/a|trading as|t/a)\b")
 WEBSITE = re.compile(r"^www\.|\.(?:com|net|org|in|co\.in|fr)\b")
 LEET = [(re.compile(r"(?<=[a-z])0(?=[a-z])"), "o"), (re.compile(r"(?<=[a-z])1(?=[a-z])"), "l")]
 PVT_LTD_ABBR = re.compile(r"\bpra\.?\s*li\.?(?=\s|$)")  # Devanagari "प्रा. लि."
@@ -34,7 +34,8 @@ STREET_WORDS = {
 }
 # Unit markers and filler that differ between sources for the same address.
 ADDRESS_DROP = {"unit", "ste", "suite", "city"}
-NULL_COMPONENTS = {"null", "<null>", "n/a", "na", "none", "-"}
+# Placeholders for a missing component, as they look after cleaning ("<NULL>" -> "null", "N/A" -> "n a").
+NULL_COMPONENTS = {"null", "na", "n a", "none"}
 
 US_STATES = {
     "alabama": "al", "alaska": "ak", "arizona": "az", "arkansas": "ar", "california": "ca",
@@ -74,13 +75,15 @@ def _clean(text: str, keep: str) -> list[str]:
 class RuleNormalizer:
     def normalize_name(self, name: str) -> tuple[str, str]:
         """Return (core name, legal form). Legal-form tokens are pulled out, sorted and deduplicated."""
-        s = name.lower()
-        s = DBA.sub("", s)
+        # Reduce to the output alphabet up front, keeping only the punctuation the rules below need.
+        s = re.sub(r"[^a-z0-9&+./ ]+", " ", name.lower())
+        s = next((part for part in reversed(DBA.split(s)) if re.search(r"[a-z0-9]", part)), "")
         s = WEBSITE.sub(" ", s)
+        s = PVT_LTD_ABBR.sub(" pvt ltd ", s)
+        s = s.replace(".", "")  # after the rules that need dots, before LEET so "a0.a" is caught
         for pattern, repl in LEET:
             s = pattern.sub(repl, s)
-        s = PVT_LTD_ABBR.sub(" pvt ltd ", s)
-        s = s.replace("&", " and ").replace("+", " and ").replace(".", "")
+        s = s.replace("&", " and ").replace("+", " and ")
         tokens = _clean(s, keep="")
 
         core = [tok for tok in tokens if tok not in LEGAL_FORMS]
@@ -98,8 +101,6 @@ class RuleNormalizer:
         """Normalize each comma-separated component; drop null ones. Order is preserved."""
         components = []
         for part in address.lower().split(","):
-            if part.strip() in NULL_COMPONENTS:
-                continue
             # Keep "/" and "-" only inside numbers ("26/34", "54-18-45"); elsewhere they separate words.
             part = re.sub(r"(?<![0-9])[-/]|[-/](?![0-9])", " ", part)
             tokens = _clean(part, keep="/-")
@@ -114,7 +115,7 @@ class RuleNormalizer:
             tokens = [STREET_WORDS.get(tok, tok) for tok in tokens]
             tokens = [tok.lstrip("0") or "0" if tok.isdigit() else tok for tok in tokens]
             component = " ".join(tokens)
-            if component:
+            if component and component not in NULL_COMPONENTS:
                 components.append(component)
         return ", ".join(components)
 
