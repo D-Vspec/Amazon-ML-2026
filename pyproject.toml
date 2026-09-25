@@ -2,7 +2,9 @@
 name = "business-entity-resolution"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "anyascii>=0.3.3",
+]
 
 [build-system]
 requires = ["hatchling"]
