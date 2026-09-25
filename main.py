@@ -17,7 +17,12 @@ NORMALIZERS = {"rules": RuleNormalizer}
 
 
 def load_config(path: Path = Path(".env")) -> dict[str, str]:
-    """KEY=VALUE lines from `path` (blank lines and # comments skipped); environment variables override."""
+    """KEY=VALUE lines from `path` (blank lines and # comments skipped); environment variables override.
+
+    Falls back to the committed `.env.example` when there is no local `.env`.
+    """
+    if not path.exists():
+        path = path.with_name(".env.example")
     config = {}
     for line in path.read_text().splitlines():
         line = line.strip()
@@ -41,18 +46,22 @@ def read_tsv(path: Path, nrows: int | None) -> pd.DataFrame:
 def main():
     config = load_config()
     data_dir, split = Path(config["DATA_DIR"]), config["SPLIT"]
+    n_sets = int(config["N_SETS"])
     sets = [int(k) for k in config["SETS"].split(",") if k.strip()]
+    if any(not 0 <= k < n_sets for k in sets):
+        raise SystemExit(f"SETS={config['SETS']!r} in .env must be between 0 and N_SETS-1 ({n_sets - 1})")
+    splits_dir = SPLITS_DIR / f"{n_sets}_sets"  # a different N assigns records differently
     nrows = int(config["NROWS"]) if config["NROWS"] else None
     transliterator = pick(TRANSLITERATORS, config, "TRANSLITERATOR")
     normalizer = pick(NORMALIZERS, config, "NORMALIZER")
 
-    if sets and not all((SPLITS_DIR / f"set_{k}").exists() for k in sets):
-        print("writing the 10 training sets to", SPLITS_DIR)
-        HashSplitter().write(data_dir / "train", SPLITS_DIR)
+    if sets and not all((splits_dir / f"set_{k}").exists() for k in sets):
+        print(f"writing the {n_sets} training sets to {splits_dir}")
+        HashSplitter(n_sets).write(data_dir / "train", splits_dir)
 
     def load_source(source: int) -> pd.DataFrame:
         if sets:  # training sets from data/splits/, concatenated
-            return pd.concat([read_tsv(SPLITS_DIR / f"set_{k}" / f"source{source}.tsv", nrows) for k in sets],
+            return pd.concat([read_tsv(splits_dir / f"set_{k}" / f"source{source}.tsv", nrows) for k in sets],
                              ignore_index=True)
         return read_tsv(data_dir / split / f"{split}_source{source}.tsv", nrows)
 

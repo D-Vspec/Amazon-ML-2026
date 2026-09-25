@@ -1,4 +1,4 @@
-"""Split the training data into 10 equal, cluster-aware sets. See docs/data_splits.md."""
+"""Split the training data into N equal, cluster-aware sets (10 by default). See docs/data_splits.md."""
 
 import zlib
 from contextlib import ExitStack
@@ -6,13 +6,14 @@ from pathlib import Path
 
 
 class HashSplitter:
-    n_sets = 10
+    def __init__(self, n_sets: int = 10):
+        self.n_sets = n_sets
 
     def set_of(self, entity_id: str) -> int:
         return zlib.crc32(entity_id.encode()) % self.n_sets
 
     def write(self, train_dir: Path, out_dir: Path) -> dict[int, dict[str, int]]:
-        """Write `<out_dir>/set_<k>/{source1,source2,source3,ground_truth}.tsv` for k in 0..9.
+        """Write `<out_dir>/set_<k>/{source1,source2,source3,ground_truth}.tsv` for k in 0..n_sets-1.
 
         An S1 record and all its matches go to the S1's set; unmatched S2/S3 records (distractors)
         use their own id. Returns row counts per set and file.
