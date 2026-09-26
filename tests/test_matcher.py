@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import pytest
+import torch
 
 from er.features import FEATURE_COLUMNS
 from er.matcher import XgbMatcher
@@ -38,3 +40,19 @@ def test_save_load_round_trip(tmp_path):
     loaded = XgbMatcher.load(str(tmp_path / "m.json"))
     assert loaded.feature_names == cols
     assert np.allclose(m.predict(data)["match_proba"], loaded.predict(data)["match_proba"])
+
+
+def test_device_defaults_to_cpu_and_cuda_falls_back_without_gpu(monkeypatch):
+    assert XgbMatcher().params["device"] == "cpu"
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    assert XgbMatcher("cuda").params["device"] == "cpu"
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="no GPU")
+def test_gpu_training_agrees_with_cpu(tmp_path):
+    data = labeled(FEATURE_COLUMNS)
+    same = dict(n_estimators=20, subsample=1.0, colsample_bytree=1.0)  # row/column sampling RNG differs on GPU
+    cpu = XgbMatcher("cpu", **same).fit(data).predict(data)["match_proba"]
+    gpu_model = XgbMatcher("cuda", **same).fit(data)
+    assert gpu_model.model.get_params()["device"] == "cuda"
+    assert np.allclose(cpu, gpu_model.predict(data)["match_proba"], atol=0.02)
