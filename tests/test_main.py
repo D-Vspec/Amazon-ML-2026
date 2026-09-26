@@ -167,3 +167,19 @@ def test_missing_matcher_model_is_trained_saved_then_loaded(tmp_path, monkeypatc
     main.main()
     second = capsys.readouterr().out
     assert "loaded from" in second and "trained on sets" not in second
+
+
+def test_cross_encoder_as_the_matcher_needs_no_train_sets(tmp_path, monkeypatch, capsys):
+    _dataset(tmp_path, 3, "0", matcher="cross_encoder", train_sets="", tune_sets="2",
+             cross_encoder=SMALL_CE, ce_train_sets="1", ce_dir=tmp_path / "models" / "ce")
+    monkeypatch.chdir(tmp_path)
+    main.main()
+    out = capsys.readouterr().out
+    assert "fine-tuned on sets [1]" in out and "has nothing to train" in out and "F0.5 on sets [0]:" in out
+
+
+def test_cross_encoder_matcher_requires_cross_encoder(tmp_path, monkeypatch):
+    _dataset(tmp_path, 3, "0", matcher="cross_encoder", train_sets="", tune_sets="2")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="MATCHER=cross_encoder needs CROSS_ENCODER"):
+        main.main()

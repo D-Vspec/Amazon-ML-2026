@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 import er.cross_encoder as ce_module
-from er.cross_encoder import CrossEncoderScorer
+from er.cross_encoder import CrossEncoderMatcher, CrossEncoderScorer
 
 SMALL = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"  # Apache-2.0, 118M: small enough for CPU tests
 S1 = pd.DataFrame({"entity_id": ["S1-1", "S1-2"], "raw_name": ["Perfect Media", "Harris Better"],
@@ -41,12 +41,15 @@ def test_fit_then_save_load_round_trip(tmp_path):
     assert np.allclose(scorer.score(PAIRS, S1, TARGETS), loaded.score(PAIRS, S1, TARGETS), atol=1e-5)
 
 
-def test_remote_code_only_for_reviewed_models_and_pinned(monkeypatch):
+def test_never_trusts_remote_code(monkeypatch):
     calls = []
-    monkeypatch.setattr(ce_module, "CrossEncoder", lambda path, **kw: calls.append((path, kw)))
-    CrossEncoderScorer("cpu", "Alibaba-NLP/gte-multilingual-reranker-base")
+    monkeypatch.setattr(ce_module, "CrossEncoder", lambda path, **kw: calls.append(kw))
     CrossEncoderScorer("cpu", SMALL)
-    (_, gte_kwargs), (_, small_kwargs) = calls
-    pin = ce_module.REVIEWED_REMOTE_CODE["Alibaba-NLP/gte-multilingual-reranker-base"]
-    assert gte_kwargs["trust_remote_code"] and gte_kwargs["config_kwargs"]["code_revision"] == pin
-    assert not small_kwargs["trust_remote_code"] and small_kwargs["config_kwargs"] == {}
+    assert not calls[0].get("trust_remote_code", False)
+
+
+def test_matcher_uses_the_cross_encoder_score_as_probability():
+    pairs = PAIRS.assign(score_cross_encoder=[0.9, 0.1, 0.8, 0.2])
+    matcher = CrossEncoderMatcher("cpu")
+    assert not matcher.needs_training
+    assert matcher.predict(pairs)["match_proba"].tolist() == [0.9, 0.1, 0.8, 0.2]
