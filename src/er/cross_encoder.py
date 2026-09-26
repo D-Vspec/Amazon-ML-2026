@@ -1,7 +1,7 @@
 """Fine-tuned multilingual cross-encoder: reads both raw records together and scores P(same business).
 
-See docs/matching.md. Its probability is added as the `score_cross_encoder` column, which PairFeaturizer
-passes through and XgbMatcher trains on, so XGBoost learns when to trust it (stacking).
+See docs/matching.md. Its probability is added as the `score_cross_encoder` column. Either XgbMatcher trains on
+it as one more feature (stacking), or CrossEncoderMatcher uses it directly as the match probability.
 """
 
 import numpy as np
@@ -11,14 +11,11 @@ from datasets import Dataset
 from sentence_transformers.cross_encoder import CrossEncoder, CrossEncoderTrainer, CrossEncoderTrainingArguments
 from sentence_transformers.cross_encoder.losses import BinaryCrossEntropyLoss
 
-# Models whose Hub config needs trust_remote_code, pinned to the code commit that was reviewed
-# (Alibaba-NLP/new-impl: only torch/transformers maths, no I/O or network; see docs/matching.md).
-REVIEWED_REMOTE_CODE = {"Alibaba-NLP/gte-multilingual-reranker-base": "40ced75c3017eb27626c9d4ea981bde21a2662f4"}
 PREDICT_CHUNK = 500_000  # pairs turned into text and scored at once
 
 
 class CrossEncoderScorer:
-    def __init__(self, device: str = "cpu", model: str = "Alibaba-NLP/gte-multilingual-reranker-base",
+    def __init__(self, device: str = "cpu", model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
                  max_length: int = 128, batch_size: int = 64, train_pairs: int = 1_000_000, seed: int = 0,
                  path: str | None = None):
         """`model` is the Hub base checkpoint; `path` loads a fine-tuned copy of it instead (see load())."""
@@ -28,13 +25,11 @@ class CrossEncoderScorer:
         self.model = self._load(path or model)
 
     def _load(self, path: str) -> CrossEncoder:
-        code_revision = REVIEWED_REMOTE_CODE.get(self.base_model)
-        extra = {"code_revision": code_revision} if code_revision else {}
         dtype = {"torch_dtype": torch.float16} if self.device == "cuda" else {}
         # Sigmoid always: some checkpoints (e.g. mmarco-mMiniLMv2) save no activation and return raw logits.
+        # No trust_remote_code: only standard transformers architectures are loaded.
         return CrossEncoder(path, num_labels=1, max_length=self.max_length, device=self.device,
-                            trust_remote_code=code_revision is not None, activation_fn=torch.nn.Sigmoid(),
-                            config_kwargs=extra, model_kwargs={**extra, **dtype})
+                            activation_fn=torch.nn.Sigmoid(), model_kwargs=dtype)
 
     @staticmethod
     def _texts(pairs: pd.DataFrame, s1_records: pd.DataFrame, targets: pd.DataFrame) -> tuple[list, list]:
@@ -79,7 +74,22 @@ class CrossEncoderScorer:
         self.model.save(path)
 
     @classmethod
-    def load(cls, path: str, device: str = "cpu", model: str = "Alibaba-NLP/gte-multilingual-reranker-base",
+    def load(cls, path: str, device: str = "cpu", model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
              **kwargs) -> "CrossEncoderScorer":
-        """Load a fine-tuned model from `path`; `model` names its base checkpoint (for the remote-code pin)."""
+        """Load a fine-tuned (frozen) model from `path`; `model` names the base checkpoint it came from."""
         return cls(device, model, path=path, **kwargs)
+
+
+class CrossEncoderMatcher:
+    """Matcher that uses the fine-tuned cross-encoder's probability directly (MATCHER=cross_encoder).
+
+    It has nothing of its own to train: the cross-encoder is fine-tuned on CE_TRAIN_SETS by main.py, and every
+    set's pairs carry its `score_cross_encoder` column.
+    """
+    needs_training = False
+
+    def __init__(self, device: str = "cpu"):
+        self.device = device
+
+    def predict(self, pairs: pd.DataFrame) -> pd.DataFrame:
+        return pairs.assign(match_proba=pairs["score_cross_encoder"])
