@@ -22,7 +22,7 @@ N = 600  # businesses in the fixture: enough per set for TF-IDF max_df and for m
 
 
 def _dataset(tmp_path, n_sets, sets, blocker="tfidf", matcher="", train_sets="1", tune_sets="2", model="",
-             cache_dir=""):
+             cache_dir="", cross_encoder="", ce_train_sets="", ce_dir=""):
     train = tmp_path / "ds" / "train"
     train.mkdir(parents=True)
     header = "entity_id\tbusiness_name\tbusiness_address\tcountry\n"
@@ -39,7 +39,34 @@ def _dataset(tmp_path, n_sets, sets, blocker="tfidf", matcher="", train_sets="1"
                                    f"BLOCKER={blocker}\nBLOCK_K=5\nDEVICE=cpu\n"
                                    "EMBED_MODEL=intfloat/multilingual-e5-small\n"
                                    f"MATCHER={matcher}\nTRAIN_SETS={train_sets}\nTUNE_SETS={tune_sets}\n"
-                                   f"MATCHER_MODEL={model}\nCACHE_DIR={cache_dir}\n")
+                                   f"MATCHER_MODEL={model}\nCACHE_DIR={cache_dir}\n"
+                                   f"CROSS_ENCODER={cross_encoder}\nCE_TRAIN_SETS={ce_train_sets}\nCE_MODEL_DIR={ce_dir}\n")
+
+
+SMALL_CE = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+
+
+def test_cross_encoder_fine_tunes_then_is_loaded_with_cached_scores(tmp_path, monkeypatch, capsys):
+    _dataset(tmp_path, 4, "0", matcher="xgb", train_sets="1", tune_sets="2", cache_dir=tmp_path / "cache",
+             cross_encoder=SMALL_CE, ce_train_sets="3", ce_dir=tmp_path / "models" / "ce")
+    monkeypatch.chdir(tmp_path)
+    main.main()
+    first = capsys.readouterr().out
+    assert "fine-tuned on sets [3]" in first and first.count("cross-encoder scored") == 3  # sets 0, 1, 2
+    main.main()
+    second = capsys.readouterr().out
+    assert "cross-encoder loaded from" in second and "cross-encoder scored" not in second  # scores from the cache
+    f05 = lambda out: next(line for line in out.splitlines() if line.startswith("F0.5 on sets"))
+    assert f05(first) == f05(second)
+
+
+@pytest.mark.parametrize("ce_train_sets", ["0", "1", "2", ""])
+def test_cross_encoder_set_roles_validated(tmp_path, monkeypatch, ce_train_sets):
+    _dataset(tmp_path, 4, "0", matcher="xgb", train_sets="1", tune_sets="2",
+             cross_encoder=SMALL_CE, ce_train_sets=ce_train_sets, ce_dir=tmp_path / "models" / "ce")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match="CE_TRAIN_SETS"):
+        main.main()
 
 
 def test_cache_second_run_loads_and_scores_the_same(tmp_path, monkeypatch, capsys):
