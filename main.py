@@ -13,7 +13,7 @@ from er.blockers.tfidf import TfidfNgramBlocker
 from er.blockers.union import UnionBlocker
 from er.decision import decide, tune_threshold
 from er.cache import RECORD_COLUMNS, PairCache
-from er.cross_encoder import CrossEncoderScorer
+from er.cross_encoder import CrossEncoderMatcher, CrossEncoderScorer
 from er.evaluate import F05Evaluator
 from er.features import FEATURE_COLUMNS, PairFeaturizer
 from er.matcher import XgbMatcher
@@ -28,7 +28,7 @@ SPLITS_DIR = Path("data/splits")
 TRANSLITERATORS = {"anyascii": AnyAsciiTransliterator}
 NORMALIZERS = {"rules": RuleNormalizer}
 BLOCKERS = {"tfidf": TfidfNgramBlocker, "embedding": EmbeddingBlocker}
-MATCHERS = {"xgb": XgbMatcher}
+MATCHERS = {"xgb": XgbMatcher, "cross_encoder": CrossEncoderMatcher}
 
 
 def load_config(path: Path = Path(".env")) -> dict[str, str]:
@@ -88,12 +88,16 @@ def main():
     # trained on TRAIN_SETS and saved there, so the next run loads it.
     model_path = config["MATCHER_MODEL"]
     load_model = bool(model_path) and Path(model_path).exists()
-    train_sets = [] if load_model else [int(k) for k in config["TRAIN_SETS"].split(",") if k.strip()]
+    # A matcher like CrossEncoderMatcher has nothing to train (the cross-encoder is fine-tuned on CE_TRAIN_SETS).
+    trains = getattr(MATCHERS.get(config["MATCHER"]), "needs_training", True) and not load_model
+    train_sets = [int(k) for k in config["TRAIN_SETS"].split(",") if k.strip()] if trains else []
     tune_sets = [int(k) for k in config["TUNE_SETS"].split(",") if k.strip()]
-    if config["MATCHER"] and (not tune_sets or not (load_model or train_sets) or set(train_sets) & set(tune_sets)
+    if config["MATCHER"] and (not tune_sets or (trains and not train_sets) or set(train_sets) & set(tune_sets)
                               or set(sets) & set(train_sets + tune_sets)):
         raise SystemExit("MATCHER needs TUNE_SETS and (unless MATCHER_MODEL exists) TRAIN_SETS, "
                          "disjoint from each other and from SETS")
+    if config["MATCHER"] == "cross_encoder" and not config["CROSS_ENCODER"]:
+        raise SystemExit("MATCHER=cross_encoder needs CROSS_ENCODER (and CE_TRAIN_SETS / CE_MODEL_DIR) in .env")
     if any(not 0 <= k < n_sets for k in train_sets + tune_sets):
         raise SystemExit(f"TRAIN_SETS/TUNE_SETS in .env must be between 0 and N_SETS-1 ({n_sets - 1})")
     # CROSS_ENCODER: a Hub base checkpoint (empty = off). Its fine-tuned copy lives in CE_MODEL_DIR: loaded if it
@@ -222,6 +226,8 @@ def main():
     if load_model:
         matcher = type(matcher).load(model_path, device=config["DEVICE"])
         print(f"matcher ({config['MATCHER']}) loaded from {model_path}, not retrained")
+    elif not trains:
+        print(f"matcher ({config['MATCHER']}) has nothing to train")
     else:
         start = time.perf_counter()
         train_features, _ = labeled_features(train_sets)
