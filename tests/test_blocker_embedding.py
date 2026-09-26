@@ -78,3 +78,11 @@ def test_cpu_and_gpu_agree(blocker):
     gpu = EmbeddingBlocker("cuda").fit(TARGETS).query(rows, 3)
     assert list(cpu.cand_id) == list(gpu.cand_id)
     assert cpu.score.to_numpy() == pytest.approx(gpu.score.to_numpy(), abs=5e-3)  # GPU runs in fp16
+
+
+def test_interleaved_countries_same_pairs_and_no_copy_of_the_vectors(blocker):
+    interleaved = EmbeddingBlocker("cpu").fit(TARGETS.iloc[[3, 0, 4, 1, 5, 2]])
+    s1 = records([("S1-1", "Perfect Media", "Noida", "India"), ("S1-2", "Harris Better", "Brooklyn", "US")])
+    pd.testing.assert_frame_equal(interleaved.query(s1, 3), blocker.query(s1, 3), atol=1e-5)
+    matrix = interleaved.targets["US"][0]
+    assert matrix.untyped_storage().data_ptr() == interleaved._target_vectors.untyped_storage().data_ptr()

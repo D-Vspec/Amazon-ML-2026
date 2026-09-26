@@ -29,10 +29,12 @@ class EmbeddingBlocker:
 
     def fit(self, targets: pd.DataFrame) -> "EmbeddingBlocker":
         """Encode the S2+S3 records; keep one embedding matrix per country."""
+        # Sorted by country, each country is one contiguous block, so its matrix is a slice (a view, not a copy).
+        targets = targets.sort_values("country", kind="stable", ignore_index=True)
         vectors = self._encode(targets)
         ids = targets["entity_id"].to_numpy()
         self._target_vectors, self._target_row = vectors, pd.Index(ids)  # kept for score_pairs
-        self.targets = {country: (vectors[torch.from_numpy(rows).to(vectors.device)], ids[rows])
+        self.targets = {country: (vectors[rows[0]:rows[-1] + 1], ids[rows[0]:rows[-1] + 1])
                         for country, rows in targets.groupby("country").indices.items()}
         return self
 
