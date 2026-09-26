@@ -193,7 +193,8 @@ def main():
     elif config["CROSS_ENCODER"]:
         start = time.perf_counter()
         ce_features, ce_s1, ce_targets = featurized(ce_train_sets)
-        cross_encoder = CrossEncoderScorer(config["DEVICE"], config["CROSS_ENCODER"]).fit(
+        cross_encoder = CrossEncoderScorer(config["DEVICE"], config["CROSS_ENCODER"],
+                                           train_pairs=int(config.get("CE_TRAIN_PAIRS") or 1_000_000)).fit(
             build_training_pairs(ce_features, load_truth(ce_train_sets)), ce_s1, ce_targets)
         cross_encoder.save(ce_dir)
         print(f"cross-encoder {config['CROSS_ENCODER']} fine-tuned on sets {ce_train_sets} in "
