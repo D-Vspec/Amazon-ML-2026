@@ -28,6 +28,15 @@ def test_different_settings_or_sets_miss(tmp_path):
     assert PairCache(tmp_path, SETTINGS).load([3, 4]) is None
 
 
+def test_extra_column_round_trip(tmp_path):
+    cache = PairCache(tmp_path, SETTINGS)
+    cache.save([3], PAIRS, S1, TARGETS)
+    assert cache.load_column([3], "score_ce_a") is None
+    cache.save_column([3], "score_ce_a", [0.25, 0.75])
+    assert cache.load_column([3], "score_ce_a").tolist() == [0.25, 0.75]
+    assert cache.load_column([3], "score_ce_b") is None  # another model's scores are a different column
+
+
 def test_interrupted_write_is_not_read(tmp_path):
     cache = PairCache(tmp_path, SETTINGS)
     cache.save([3], PAIRS, S1, TARGETS)

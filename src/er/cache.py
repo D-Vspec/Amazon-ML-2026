@@ -30,6 +30,17 @@ class PairCache:
             return None
         return tuple(pd.read_parquet(path / f"{name}.parquet") for name in ("pairs", "s1", "targets"))
 
+    def load_column(self, set_list: list[int], name: str) -> pd.Series | None:
+        """An extra per-pair column (in pairs.parquet's row order) saved with save_column, else None."""
+        path = self._path(set_list) / f"column_{name}.parquet"
+        return pd.read_parquet(path)[name] if path.exists() else None
+
+    def save_column(self, set_list: list[int], name: str, values) -> None:
+        """Cache an expensive per-pair column (e.g. cross-encoder scores) alongside the set's pairs."""
+        path = self._path(set_list) / f"column_{name}.parquet"
+        pd.DataFrame({name: values}).to_parquet(path.with_suffix(".tmp"), index=False)
+        path.with_suffix(".tmp").rename(path)  # atomic: a half-written file is never read
+
     def save(self, set_list: list[int], pairs: pd.DataFrame, s1: pd.DataFrame, targets: pd.DataFrame) -> None:
         path = self._path(set_list)
         path.mkdir(parents=True, exist_ok=True)
