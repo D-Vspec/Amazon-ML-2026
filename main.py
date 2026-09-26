@@ -45,11 +45,11 @@ def load_config(path: Path = Path(".env")) -> dict[str, str]:
     return {key: os.environ.get(key, value) for key, value in config.items()}
 
 
-def pick(registry: dict, config: dict[str, str], key: str):
+def pick(registry: dict, config: dict[str, str], key: str, **kwargs):
     name = config[key]
     if name not in registry:
         raise SystemExit(f"{key}={name!r} in .env is not one of {sorted(registry)}")
-    return registry[name]()
+    return registry[name](**kwargs)
 
 
 def make_blocker(config: dict[str, str]):
@@ -165,7 +165,7 @@ def main():
 
     if not config["MATCHER"]:
         return
-    matcher = pick(MATCHERS, config, "MATCHER")
+    matcher = pick(MATCHERS, config, "MATCHER", device=config["DEVICE"])
     s1_ids, candidates = s1_records["entity_id"], features[["s1_id", "cand_id"]]
 
     def labeled_features(set_list: list[int]) -> tuple[pd.DataFrame, dict[str, set[str]]]:
@@ -174,7 +174,7 @@ def main():
         return build_training_pairs(set_features, set_truth), set_truth
 
     if load_model:
-        matcher = type(matcher).load(model_path)
+        matcher = type(matcher).load(model_path, device=config["DEVICE"])
         print(f"matcher ({config['MATCHER']}) loaded from {model_path}, not retrained")
     else:
         start = time.perf_counter()
