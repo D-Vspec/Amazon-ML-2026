@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "anyascii>=0.3.3",
     "pandas>=3.0.6",
+    "pyarrow>=25.0.1",
     "rapidfuzz>=3.14.6",
     "scikit-learn>=1.9.1",
     "sentence-transformers>=6.1.0",
