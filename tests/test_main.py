@@ -21,7 +21,8 @@ def test_load_config_falls_back_to_example(tmp_path):
 N = 600  # businesses in the fixture: enough per set for TF-IDF max_df and for matcher negatives
 
 
-def _dataset(tmp_path, n_sets, sets, blocker="tfidf", matcher="", train_sets="1", tune_sets="2", model=""):
+def _dataset(tmp_path, n_sets, sets, blocker="tfidf", matcher="", train_sets="1", tune_sets="2", model="",
+             cache_dir=""):
     train = tmp_path / "ds" / "train"
     train.mkdir(parents=True)
     header = "entity_id\tbusiness_name\tbusiness_address\tcountry\n"
@@ -38,7 +39,19 @@ def _dataset(tmp_path, n_sets, sets, blocker="tfidf", matcher="", train_sets="1"
                                    f"BLOCKER={blocker}\nBLOCK_K=5\nDEVICE=cpu\n"
                                    "EMBED_MODEL=intfloat/multilingual-e5-small\n"
                                    f"MATCHER={matcher}\nTRAIN_SETS={train_sets}\nTUNE_SETS={tune_sets}\n"
-                                   f"MATCHER_MODEL={model}\n")
+                                   f"MATCHER_MODEL={model}\nCACHE_DIR={cache_dir}\n")
+
+
+def test_cache_second_run_loads_and_scores_the_same(tmp_path, monkeypatch, capsys):
+    _dataset(tmp_path, 3, "0", matcher="xgb", train_sets="1", tune_sets="2", cache_dir=tmp_path / "cache")
+    monkeypatch.chdir(tmp_path)
+    main.main()
+    first = capsys.readouterr().out
+    main.main()
+    second = capsys.readouterr().out
+    assert "loaded from" not in first and second.count("featurized pairs loaded from") == 3  # sets 0, 1 and 2
+    f05 = lambda out: next(line for line in out.splitlines() if line.startswith("F0.5 on sets"))
+    assert f05(first) == f05(second)
 
 
 def test_main_runs_from_env_and_creates_missing_sets(tmp_path, monkeypatch, capsys):
