@@ -5,6 +5,7 @@ import os
 import time
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from er.blockers.embedding import EmbeddingBlocker
@@ -12,6 +13,7 @@ from er.blockers.tfidf import TfidfNgramBlocker
 from er.blockers.union import UnionBlocker
 from er.decision import decide, tune_threshold
 from er.cache import RECORD_COLUMNS, PairCache
+from er.cross_encoder import CrossEncoderScorer
 from er.evaluate import F05Evaluator
 from er.features import FEATURE_COLUMNS, PairFeaturizer
 from er.matcher import XgbMatcher
@@ -94,7 +96,19 @@ def main():
                          "disjoint from each other and from SETS")
     if any(not 0 <= k < n_sets for k in train_sets + tune_sets):
         raise SystemExit(f"TRAIN_SETS/TUNE_SETS in .env must be between 0 and N_SETS-1 ({n_sets - 1})")
-    needed = sets + (train_sets + tune_sets if config["MATCHER"] else [])
+    # CROSS_ENCODER: a Hub base checkpoint (empty = off). Its fine-tuned copy lives in CE_MODEL_DIR: loaded if it
+    # exists, otherwise fine-tuned on CE_TRAIN_SETS and saved there. Its score becomes the score_cross_encoder feature.
+    ce_dir = config["CE_MODEL_DIR"]
+    load_ce = bool(config["CROSS_ENCODER"]) and bool(ce_dir) and Path(ce_dir).exists()
+    ce_train_sets = ([int(k) for k in config["CE_TRAIN_SETS"].split(",") if k.strip()]
+                     if config["CROSS_ENCODER"] and not load_ce else [])
+    if config["CROSS_ENCODER"] and (not ce_dir or not (load_ce or ce_train_sets)
+                                    or set(ce_train_sets) & set(sets + train_sets + tune_sets)):
+        raise SystemExit("CROSS_ENCODER needs CE_MODEL_DIR and (unless it exists) CE_TRAIN_SETS, "
+                         "disjoint from SETS, TRAIN_SETS and TUNE_SETS")
+    if any(not 0 <= k < n_sets for k in ce_train_sets):
+        raise SystemExit(f"CE_TRAIN_SETS in .env must be between 0 and N_SETS-1 ({n_sets - 1})")
+    needed = sets + (train_sets + tune_sets if config["MATCHER"] else []) + ce_train_sets
     if needed and not all((splits_dir / f"set_{k}").exists() for k in needed):
         print(f"writing the {n_sets} training sets to {splits_dir}")
         HashSplitter(n_sets).write(data_dir / "train", splits_dir)
@@ -147,7 +161,7 @@ def main():
         return features, s1[RECORD_COLUMNS], targets[RECORD_COLUMNS]
 
     evaluator = F05Evaluator()
-    features, s1_records, _ = featurized(sets)
+    features, s1_records, target_records = featurized(sets)
     truth = load_truth(sets) if sets and nrows is None else None  # complete ground truth only for full sets
 
     if truth:
@@ -168,9 +182,41 @@ def main():
     matcher = pick(MATCHERS, config, "MATCHER", device=config["DEVICE"])
     s1_ids, candidates = s1_records["entity_id"], features[["s1_id", "cand_id"]]
 
+    cross_encoder = None
+    if load_ce:
+        cross_encoder = CrossEncoderScorer.load(ce_dir, config["DEVICE"], config["CROSS_ENCODER"])
+        print(f"cross-encoder loaded from {ce_dir}, not fine-tuned")
+    elif config["CROSS_ENCODER"]:
+        start = time.perf_counter()
+        ce_features, ce_s1, ce_targets = featurized(ce_train_sets)
+        cross_encoder = CrossEncoderScorer(config["DEVICE"], config["CROSS_ENCODER"]).fit(
+            build_training_pairs(ce_features, load_truth(ce_train_sets)), ce_s1, ce_targets)
+        cross_encoder.save(ce_dir)
+        print(f"cross-encoder {config['CROSS_ENCODER']} fine-tuned on sets {ce_train_sets} in "
+              f"{time.perf_counter() - start:.0f}s, saved to {ce_dir}")
+        del ce_features, ce_s1, ce_targets
+
+    def with_cross_encoder(set_list, set_features, set_s1, set_targets) -> pd.DataFrame:
+        """Add score_cross_encoder (cached per set and fine-tuned model); unchanged when there's no cross-encoder."""
+        if cross_encoder is None:
+            return set_features
+        column = f"score_cross_encoder__{Path(ce_dir).name}"
+        scores = cache.load_column(set_list, column) if cache and set_list else None
+        if scores is None:
+            start = time.perf_counter()
+            scores = cross_encoder.score(set_features, set_s1, set_targets)
+            seconds = time.perf_counter() - start
+            print(f"  cross-encoder scored {len(set_features):,} pairs in {seconds:.0f}s "
+                  f"({len(set_features) / max(seconds, 1e-9):,.0f} pairs/s)")
+            if cache and set_list:
+                cache.save_column(set_list, column, scores)
+        return set_features.assign(score_cross_encoder=np.asarray(scores, dtype="float32"))
+
+    features = with_cross_encoder(sets, features, s1_records, target_records)
+
     def labeled_features(set_list: list[int]) -> tuple[pd.DataFrame, dict[str, set[str]]]:
         set_truth = load_truth(set_list)
-        set_features, _, _ = featurized(set_list)
+        set_features = with_cross_encoder(set_list, *featurized(set_list))
         return build_training_pairs(set_features, set_truth), set_truth
 
     if load_model:
