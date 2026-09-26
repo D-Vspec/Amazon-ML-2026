@@ -8,18 +8,20 @@ Contract, matching the rest of the pipeline: fit(labeled_pairs) -> self, predict
 """
 
 import pandas as pd
+import torch
 import xgboost as xgb
 
 
 class XgbMatcher:
-    def __init__(self, **params):
+    def __init__(self, device: str = "cpu", **params):
         # scale_pos_weight is set from the training data at fit() time when left as None: the true
         # class balance depends on BLOCK_K and isn't known until then (docs/blocking.md: k=20 candidates
         # per S1, ~3.46 true matches per S1, so roughly 1 positive per 5 negatives at k=20, but that
         # shifts with k).
         defaults = dict(n_estimators=400, max_depth=6, learning_rate=0.05,
                         subsample=0.8, colsample_bytree=0.8, eval_metric="aucpr",
-                        scale_pos_weight=None, n_jobs=-1, random_state=0)
+                        scale_pos_weight=None, n_jobs=-1, random_state=0,
+                        device="cuda" if device == "cuda" and torch.cuda.is_available() else "cpu")
         self.params = {**defaults, **params}
         self.model: xgb.XGBClassifier | None = None
 
@@ -56,11 +58,12 @@ class XgbMatcher:
         self.model.save_model(path)
 
     @classmethod
-    def load(cls, path: str, **params) -> "XgbMatcher":
+    def load(cls, path: str, device: str = "cpu", **params) -> "XgbMatcher":
         """Load a matcher previously written with save(). `params` are stored for reference only
         (e.g. re-running feature_importance-style introspection) -- the actual model state comes
-        entirely from the saved file, so params don't need to match what was used at fit() time."""
-        obj = cls(**params)
-        obj.model = xgb.XGBClassifier()
+        entirely from the saved file, so params don't need to match what was used at fit() time.
+        `device` only chooses where predictions run."""
+        obj = cls(device, **params)
+        obj.model = xgb.XGBClassifier(device=obj.params["device"])
         obj.model.load_model(path)
         return obj
