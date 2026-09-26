@@ -11,8 +11,9 @@ from er.blockers.embedding import EmbeddingBlocker
 from er.blockers.tfidf import TfidfNgramBlocker
 from er.blockers.union import UnionBlocker
 from er.decision import decide, tune_threshold
+from er.cache import RECORD_COLUMNS, PairCache
 from er.evaluate import F05Evaluator
-from er.features import PairFeaturizer
+from er.features import FEATURE_COLUMNS, PairFeaturizer
 from er.matcher import XgbMatcher
 from er.normalize import RuleNormalizer
 from er.output import write_candidate_pairs, write_matching_results
@@ -127,8 +128,26 @@ def main():
             truth |= evaluator.load(splits_dir / f"set_{k}" / "ground_truth.tsv")
         return truth
 
+    featurizer = PairFeaturizer()
+    cache_settings = {key: config[key] for key in ("TRANSLITERATOR", "NORMALIZER", "BLOCKER", "BLOCK_K", "EMBED_MODEL")}
+    cache = (PairCache(Path(config["CACHE_DIR"]), {**cache_settings, "features": FEATURE_COLUMNS})
+             if config["CACHE_DIR"] and nrows is None else None)
+
+    def featurized(set_list: list[int]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """(pairs + features, S1 records, target records) for the given sets; cached per set list."""
+        if cache and set_list and (hit := cache.load(set_list)) is not None:
+            print(f"sets {set_list}: {len(hit[0]):,} featurized pairs loaded from {cache.dir}")
+            return hit
+        s1, targets, pairs = block(set_list)
+        start = time.perf_counter()
+        features = featurizer.transform(pairs, s1, targets)
+        print(f"  featurized in {time.perf_counter() - start:.0f}s")
+        if cache and set_list:
+            cache.save(set_list, features, s1, targets)
+        return features, s1[RECORD_COLUMNS], targets[RECORD_COLUMNS]
+
     evaluator = F05Evaluator()
-    s1, targets, pairs = block(sets)
+    features, s1_records, _ = featurized(sets)
     truth = load_truth(sets) if sets and nrows is None else None  # complete ground truth only for full sets
 
     if truth:
@@ -137,28 +156,22 @@ def main():
             print(f"  {label}: recall {evaluator.blocking_recall(candidates, truth):.3f}  "
                   f"mean candidates: {evaluator.mean_candidates(candidates, truth):.1f}")
 
-        rank = pairs.groupby("s1_id").cumcount()
         for k in sorted({1, 5, 10, block_k}):
-            report(f"top {k}", pairs[rank < k])
-        report("all candidates", pairs)
-        for member in [c.removeprefix("found_by_") for c in pairs.columns if c.startswith("found_by_")]:
+            report(f"top {k}", features[features["rank"] < k])
+        report("all candidates", features)
+        for member in [c.removeprefix("found_by_") for c in features.columns if c.startswith("found_by_")]:
             if member != "all":
-                report(f"found by {member}", pairs[pairs[f"found_by_{member}"] == 1])
+                report(f"found by {member}", features[features[f"found_by_{member}"] == 1])
 
     if not config["MATCHER"]:
         return
     matcher = pick(MATCHERS, config, "MATCHER")
-    featurizer = PairFeaturizer()
-
-    # Featurize the evaluation sets first, then free their records before loading the other sets.
-    features = featurizer.transform(pairs, s1, targets)
-    s1_ids, candidates = s1["entity_id"], pairs[["s1_id", "cand_id"]]
-    del s1, targets, pairs
+    s1_ids, candidates = s1_records["entity_id"], features[["s1_id", "cand_id"]]
 
     def labeled_features(set_list: list[int]) -> tuple[pd.DataFrame, dict[str, set[str]]]:
         set_truth = load_truth(set_list)
-        set_s1, set_targets, set_pairs = block(set_list)
-        return build_training_pairs(featurizer.transform(set_pairs, set_s1, set_targets), set_truth), set_truth
+        set_features, _, _ = featurized(set_list)
+        return build_training_pairs(set_features, set_truth), set_truth
 
     if load_model:
         matcher = type(matcher).load(model_path)
