@@ -81,6 +81,18 @@ def test_cache_second_run_loads_and_scores_the_same(tmp_path, monkeypatch, capsy
     assert f05(first) == f05(second)
 
 
+def test_whole_split_run_is_cached_too(tmp_path, monkeypatch, capsys):
+    _dataset(tmp_path, 3, "", matcher="xgb", train_sets="1", tune_sets="2", cache_dir=tmp_path / "cache")
+    monkeypatch.chdir(tmp_path)
+    main.main()
+    first = (tmp_path / "output/matching_results.tsv").read_text()
+    capsys.readouterr()
+    main.main()
+    second = capsys.readouterr().out
+    assert "sets train:" in second and "featurized pairs loaded from" in second.split("sets train:")[1].split("\n")[0]
+    assert (tmp_path / "output/matching_results.tsv").read_text() == first
+
+
 def test_main_runs_from_env_and_creates_missing_sets(tmp_path, monkeypatch, capsys):
     _dataset(tmp_path, 10, "0,1")
     monkeypatch.chdir(tmp_path)

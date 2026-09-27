@@ -153,15 +153,15 @@ def main():
 
     def featurized(set_list: list[int]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """(pairs + features, S1 records, target records) for the given sets; cached per set list."""
-        if cache and set_list and (hit := cache.load(set_list)) is not None:
-            print(f"sets {set_list}: {len(hit[0]):,} featurized pairs loaded from {cache.dir}")
+        if cache and (hit := cache.load(set_list or split)) is not None:
+            print(f"sets {set_list or split}: {len(hit[0]):,} featurized pairs loaded from {cache.dir}")
             return hit
         s1, targets, pairs = block(set_list)
         start = time.perf_counter()
         features = featurizer.transform(pairs, s1, targets)
         print(f"  featurized in {time.perf_counter() - start:.0f}s")
-        if cache and set_list:
-            cache.save(set_list, features, s1, targets)
+        if cache:
+            cache.save(set_list or split, features, s1, targets)
         return features, s1[RECORD_COLUMNS], targets[RECORD_COLUMNS]
 
     evaluator = F05Evaluator()
@@ -206,15 +206,15 @@ def main():
         if cross_encoder is None:
             return set_features
         column = f"score_cross_encoder__{Path(ce_dir).name}"
-        scores = cache.load_column(set_list, column) if cache and set_list else None
+        scores = cache.load_column(set_list or split, column) if cache else None
         if scores is None:
             start = time.perf_counter()
             scores = cross_encoder.score(set_features, set_s1, set_targets)
             seconds = time.perf_counter() - start
             print(f"  cross-encoder scored {len(set_features):,} pairs in {seconds:.0f}s "
                   f"({len(set_features) / max(seconds, 1e-9):,.0f} pairs/s)")
-            if cache and set_list:
-                cache.save_column(set_list, column, scores)
+            if cache:
+                cache.save_column(set_list or split, column, scores)
         return set_features.assign(score_cross_encoder=np.asarray(scores, dtype="float32"))
 
     features = with_cross_encoder(sets, features, s1_records, target_records)

@@ -42,3 +42,12 @@ def test_interrupted_write_is_not_read(tmp_path):
     cache.save([3], PAIRS, S1, TARGETS)
     (cache.dir / "sets_3" / "done").unlink()  # as if the process died before finishing
     assert cache.load([3]) is None
+
+
+def test_whole_split_is_cached_by_name_apart_from_sets(tmp_path):
+    cache = PairCache(tmp_path, SETTINGS)
+    cache.save("test", PAIRS, S1, TARGETS)
+    cache.save_column("test", "score_cross_encoder__ce", [0.1, 0.9])
+    pd.testing.assert_frame_equal(cache.load("test")[0], PAIRS)
+    assert cache.load_column("test", "score_cross_encoder__ce").tolist() == [0.1, 0.9]
+    assert cache.load("train") is None and cache.load([]) is None

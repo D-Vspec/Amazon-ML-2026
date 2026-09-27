@@ -1,6 +1,7 @@
 """On-disk cache of blocking + featurizing output per set, so experiments don't re-block (~10 min per set).
 
-Layout: <root>/<key>/sets_<k1_k2..>/{pairs,s1,targets}.parquet plus a `done` marker written last, so an
+Layout: <root>/<key>/sets_<k1_k2..>/ (training sets) or split_<name>/ (a whole split, e.g. test), each holding
+{pairs,s1,targets}.parquet plus a `done` marker written last, so an
 interrupted write is never read back. <key> is a hash of every setting that changes the pairs or features.
 """
 
@@ -20,28 +21,31 @@ class PairCache:
         key = hashlib.sha1(json.dumps({"version": CACHE_VERSION, **settings}, sort_keys=True).encode()).hexdigest()
         self.dir = Path(root) / key[:12]
 
-    def _path(self, set_list: list[int]) -> Path:
+    def _path(self, set_list: list[int] | str) -> Path:
+        """set_list: training set numbers, or a split name (e.g. "test") for the whole split."""
+        if isinstance(set_list, str):
+            return self.dir / f"split_{set_list}"
         return self.dir / ("sets_" + "_".join(map(str, set_list)))
 
-    def load(self, set_list: list[int]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | None:
+    def load(self, set_list: list[int] | str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | None:
         """(pairs, s1 records, target records) if cached, else None."""
         path = self._path(set_list)
         if not (path / "done").exists():
             return None
         return tuple(pd.read_parquet(path / f"{name}.parquet") for name in ("pairs", "s1", "targets"))
 
-    def load_column(self, set_list: list[int], name: str) -> pd.Series | None:
+    def load_column(self, set_list: list[int] | str, name: str) -> pd.Series | None:
         """An extra per-pair column (in pairs.parquet's row order) saved with save_column, else None."""
         path = self._path(set_list) / f"column_{name}.parquet"
         return pd.read_parquet(path)[name] if path.exists() else None
 
-    def save_column(self, set_list: list[int], name: str, values) -> None:
+    def save_column(self, set_list: list[int] | str, name: str, values) -> None:
         """Cache an expensive per-pair column (e.g. cross-encoder scores) alongside the set's pairs."""
         path = self._path(set_list) / f"column_{name}.parquet"
         pd.DataFrame({name: values}).to_parquet(path.with_suffix(".tmp"), index=False)
         path.with_suffix(".tmp").rename(path)  # atomic: a half-written file is never read
 
-    def save(self, set_list: list[int], pairs: pd.DataFrame, s1: pd.DataFrame, targets: pd.DataFrame) -> None:
+    def save(self, set_list: list[int] | str, pairs: pd.DataFrame, s1: pd.DataFrame, targets: pd.DataFrame) -> None:
         path = self._path(set_list)
         path.mkdir(parents=True, exist_ok=True)
         pairs.to_parquet(path / "pairs.parquet", index=False)
