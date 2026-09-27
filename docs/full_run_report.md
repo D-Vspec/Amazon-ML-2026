@@ -64,7 +64,7 @@ vast.ai offer #38381900 (instance 52780549), $0.430/h:
 | sha256 `matching_results.tsv` | `4b82eb50fb42f74f51a7fd2b0c566f7e64fea4d8db0d6b8d26bb71b1a5367ec9` |
 | sha256 `candidate_pairs.tsv` | `80b7a6bcef474a5bf6322a14b38eb1d9ced6bcbd004d131cc2954a9b115a51b0` |
 
-The test F0.5 is unknown: only the leaderboard has test labels. As a consistency check, set 3 predicted 3.42 matches per S1, against the test's 3.39.
+**Leaderboard F0.5: about 0.962**, as reported by the Portal. That is 2.2 points below the held-out 0.9844 on set 3; see [Limitations](#limitations-and-what-to-improve). As a consistency check, set 3 predicted 3.42 matches per S1, against the test's 3.39.
 
 ### By country
 
