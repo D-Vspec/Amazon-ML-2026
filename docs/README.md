@@ -5,3 +5,4 @@
 - [evaluation.md](evaluation.md): the leaderboard's macro F0.5 and blocking recall, computed locally, and how much precision matters.
 - [blocking.md](blocking.md): the TF-IDF and multilingual-embedding blockers and their union, measured recall@k, GPU vs CPU speed, and what each one misses.
 - [matching.md](matching.md): pair features, the XGBoost matcher and threshold, and F0.5 of `model.json` vs the retrained union models (`model_union.json`).
+- [full_run_report.md](full_run_report.md): the run behind the leaderboard submission. Held-out F0.5, test output checks by country, timings on an RTX 4090, and limitations.
